@@ -27,6 +27,7 @@ import { findReminders } from './tools/find-reminders.js'
 import { findSections } from './tools/find-sections.js'
 import { findTasksByDate } from './tools/find-tasks-by-date.js'
 import { findTasks } from './tools/find-tasks.js'
+import { findTemplates } from './tools/find-templates.js'
 import { getOverview } from './tools/get-overview.js'
 import { getProductivityStats } from './tools/get-productivity-stats.js'
 import { getProjectActivityStats } from './tools/get-project-activity-stats.js'
@@ -159,6 +160,7 @@ const toolRegistry = {
     exportProjectTemplate,
     importProjectTemplate,
     addTemplate,
+    findTemplates,
     updateTemplate,
 
     // Workspace tools

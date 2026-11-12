@@ -327,6 +327,12 @@ describeToolAnnotations({
             idempotentHint: false,
             openWorldHint: true,
         },
+        [ToolNames.FIND_TEMPLATES]: {
+            title: 'Todoist: Find Templates',
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+        },
         [ToolNames.UPDATE_TEMPLATE]: {
             title: 'Todoist: Update Template',
             readOnlyHint: false,

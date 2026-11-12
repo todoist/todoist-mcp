@@ -83,6 +83,7 @@ export const ToolNames = {
     EXPORT_PROJECT_TEMPLATE: 'export-project-template',
     IMPORT_PROJECT_TEMPLATE: 'import-project-template',
     ADD_TEMPLATE: 'add-template',
+    FIND_TEMPLATES: 'find-templates',
     UPDATE_TEMPLATE: 'update-template',
 
     // Workspace tools
