@@ -55,7 +55,10 @@ const rescheduleTasks = {
     async execute(args, client) {
         const { tasks: taskInputs } = args
 
-        // Parse durations before any request, so a bad one changes nothing.
+        // Check dates and parse durations before any request, so a bad one changes nothing.
+        for (const input of taskInputs) {
+            assertValidRescheduleDate(`Task ${input.id}`, input.date)
+        }
         const durations = taskInputs.map((input) =>
             input.duration ? parseItemDuration(`Task ${input.id}`, input.duration) : undefined,
         )
@@ -178,6 +181,40 @@ function buildRescheduleFields(
         return { deadline: { date: inputDate.slice(0, 10) } }
     }
     return undefined
+}
+
+/**
+ * The date or datetime forms the Sync API's `due.date` accepts (`parse_due` in the
+ * backend): ISO 8601, case-insensitive `T`/`Z`, optional seconds, fraction and offset.
+ * The backend also takes Unix timestamps, so "20261119" would land in 1970; those are
+ * left out on purpose.
+ */
+const RESCHEDULE_DATE_PATTERN =
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/i
+
+/** The backend rejects earlier years as "date is too old". */
+const MIN_VALID_YEAR = 1900
+
+function isValidRescheduleDate(value: string): boolean {
+    const match = RESCHEDULE_DATE_PATTERN.exec(value)
+    if (!match) return false
+    const [year, month, day, hour = 0, minute = 0, second = 0] = match
+        .slice(1)
+        .map((part) => (part === undefined ? undefined : Number(part)))
+    if (year === undefined || month === undefined || day === undefined) return false
+    if (year < MIN_VALID_YEAR || month < 1 || month > 12) return false
+    // Day 0 of the next month is the last day of this one.
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+    return day >= 1 && day <= daysInMonth && hour <= 23 && minute <= 59 && second <= 59
+}
+
+function assertValidRescheduleDate(label: string, value: string): void {
+    if (!isValidRescheduleDate(value)) {
+        throw new Error(
+            `${label}: Invalid date "${value}". Use YYYY-MM-DD, or YYYY-MM-DDTHH:MM:SS for a specific time. ` +
+                'Natural language such as "today" is not accepted: convert it to a date first.',
+        )
+    }
 }
 
 function buildRescheduleDate(inputDate: string, existingDue: NonNullable<Task['due']>): string {

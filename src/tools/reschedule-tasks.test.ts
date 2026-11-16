@@ -575,6 +575,59 @@ describe(`${RESCHEDULE_TASKS} tool`, () => {
             expect(mockTodoistApi.sync).not.toHaveBeenCalled()
         })
     })
+
+    describe('date validation', () => {
+        // Values models sent in production, each rejected by the API with INVALID_DATE.
+        it.each([
+            'today',
+            'tomorrow',
+            'no date',
+            'SKIP',
+            '02-11-2026',
+            '2026-11-04 at 09:00',
+            '2026-11-19T08:20:00:00',
+            '2026-02-30',
+            '2026-11-19T24:00:00',
+            '0202-01-01',
+            '20261119',
+        ])('rejects %j before any request', async (date) => {
+            await expect(
+                rescheduleTasks.execute({ tasks: [{ id: 'task-1', date }] }, mockTodoistApi),
+            ).rejects.toThrow(`Task task-1: Invalid date "${date}"`)
+
+            expect(mockTodoistApi.getTask).not.toHaveBeenCalled()
+            expect(mockTodoistApi.sync).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            '2026-11-19',
+            '2026-11-19T08:20',
+            '2026-11-19T08:20:00',
+            '2026-11-19T08:20:00.123',
+            '2026-11-19T08:20:00Z',
+            '2026-11-19T08:20:00+01:00',
+            '2024-02-29',
+        ])('sends %j to the API unchanged', async (date) => {
+            mockTodoistApi.getTask.mockResolvedValue(
+                createMockTask({
+                    id: 'task-1',
+                    due: { date: '2026-11-12', string: 'Nov 12', isRecurring: false },
+                }),
+            )
+
+            await rescheduleTasks.execute({ tasks: [{ id: 'task-1', date }] }, mockTodoistApi)
+
+            expect(mockTodoistApi.sync).toHaveBeenCalledWith({
+                commands: [
+                    expect.objectContaining({
+                        args: expect.objectContaining({
+                            due: expect.objectContaining({ date }),
+                        }),
+                    }),
+                ],
+            })
+        })
+    })
 })
 
 describe('buildRescheduleDate', () => {
