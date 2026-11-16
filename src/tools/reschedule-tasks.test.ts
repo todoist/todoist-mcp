@@ -1,5 +1,6 @@
 import { type TodoistApi, TodoistSyncError } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { z } from 'zod'
 import { createMockTask } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { buildRescheduleDate, rescheduleTasks } from './reschedule-tasks.js'
@@ -573,6 +574,36 @@ describe(`${RESCHEDULE_TASKS} tool`, () => {
 
             expect(mockTodoistApi.getTask).not.toHaveBeenCalled()
             expect(mockTodoistApi.sync).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('date validation', () => {
+        const parseDate = (date: string) =>
+            z.object(rescheduleTasks.parameters).safeParse({ tasks: [{ id: 'task-1', date }] })
+
+        // Values models sent in production, each rejected by the API with INVALID_DATE.
+        it.each([
+            'today',
+            'tomorrow',
+            'no date',
+            'SKIP',
+            '02-11-2026',
+            '2026-11-04 at 09:00',
+            '2026-11-19T08:20:00:00',
+            '20261119',
+        ])('rejects %j', (date) => {
+            expect(parseDate(date).success).toBe(false)
+        })
+
+        it.each([
+            '2026-11-19',
+            '2026-11-19T08:20',
+            '2026-11-19T08:20:00',
+            '2026-11-19T08:20:00.123',
+            '2026-11-19T08:20:00Z',
+            '2026-11-19T08:20:00+01:00',
+        ])('accepts %j', (date) => {
+            expect(parseDate(date).success).toBe(true)
         })
     })
 })

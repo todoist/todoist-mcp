@@ -16,7 +16,9 @@ const TaskRescheduleSchema = z.object({
     id: z.string().min(1).describe('The ID of the task to reschedule.'),
     date: z
         .string()
-        .min(1)
+        // ISO 8601, the forms the Sync API's due.date accepts. Natural language such as
+        // "today" reached the API and failed with INVALID_DATE.
+        .regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/)
         .describe(
             'The new date for the task. Use YYYY-MM-DD for date-only, or YYYY-MM-DDTHH:MM:SS for datetime. ' +
                 'If date-only is provided and the task already has a specific time, the existing time is preserved.',
