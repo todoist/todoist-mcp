@@ -54,18 +54,14 @@ const ArgsSchema = {
         .describe(
             'The method to use to get the tasks: "completion" to get tasks by completion date (ie, when the task was actually completed), "due" to get tasks by due date (ie, when the task was due to be completed by).',
         ),
-    since: z
-        .string()
+    since: z.iso
         .date()
-        .regex(/^\d{4}-\d{2}-\d{2}$/)
         .optional()
         .describe(
             'Optional start date for completed tasks. Format: YYYY-MM-DD. Defaults to 6 days before until (or today if until is omitted), resulting in a 7-day window.',
         ),
-    until: z
-        .string()
+    until: z.iso
         .date()
-        .regex(/^\d{4}-\d{2}-\d{2}$/)
         .optional()
         .describe(
             'Optional end date for completed tasks. Format: YYYY-MM-DD. Defaults to 6 days after since (or today if since is omitted), resulting in a 7-day window.',

@@ -684,6 +684,24 @@ describe(`${FIND_COMPLETED_TASKS} tool`, () => {
         })
     })
 
+    describe('date parameters', () => {
+        const schema = z.object(findCompletedTasks.parameters)
+
+        it.each(['since', 'until'])('should accept a calendar date in %s', (field) => {
+            expect(schema.safeParse({ [field]: '2024-02-29' }).success).toBe(true)
+        })
+
+        it.each([
+            ['since', '2025-02-29'],
+            ['since', '2025-8-1'],
+            ['since', '2025-08-01T09:00:00Z'],
+            ['until', '2025-02-30'],
+            ['until', 'yesterday'],
+        ])('should reject %s=%s', (field, value) => {
+            expect(schema.safeParse({ [field]: value }).success).toBe(false)
+        })
+    })
+
     describe('error handling', () => {
         it('should propagate completion date API errors', async () => {
             const apiError = new Error('API Error: Invalid date range')
