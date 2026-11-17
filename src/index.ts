@@ -66,6 +66,7 @@ import { updateProjects } from './tools/update-projects.js'
 import { updateReminders } from './tools/update-reminders.js'
 import { updateSections } from './tools/update-sections.js'
 import { updateTasks } from './tools/update-tasks.js'
+import { updateTemplate } from './tools/update-template.js'
 import { userInfo } from './tools/user-info.js'
 import { viewAttachment } from './tools/view-attachment.js'
 import { validateTodoistToken } from './utils/validate-todoist-token.js'
@@ -126,6 +127,7 @@ export {
     exportProjectTemplate,
     importProjectTemplate,
     addTemplate,
+    updateTemplate,
     // Workspace tools
     listWorkspaces,
     // Attachment tools
