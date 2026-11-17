@@ -89,6 +89,14 @@ describe('view-attachment tool', () => {
             expect(schema.safeParse({ fileUrl }).success).toBe(false)
             expect(advertisedPattern.test(fileUrl)).toBe(false)
         })
+
+        it('should explain a rejected fileUrl in words, not as the pattern', () => {
+            const result = schema.safeParse({ fileUrl: 'https://attacker.example/collect' })
+
+            expect(result.error?.issues[0]?.message).toBe(
+                "Pass the fileUrl from a comment's fileAttachment: an https URL on files.todoist.com, todoist.b-cdn.net or d1ysz50cxb9zwl.cloudfront.net.",
+            )
+        })
     })
 
     it('should call client.viewAttachment with the file URL', async () => {

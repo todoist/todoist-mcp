@@ -88,7 +88,9 @@ const ATTACHMENT_URL_PATTERN =
 const ArgsSchema = {
     fileUrl: z
         .url()
-        .regex(ATTACHMENT_URL_PATTERN)
+        .regex(ATTACHMENT_URL_PATTERN, {
+            error: "Pass the fileUrl from a comment's fileAttachment: an https URL on files.todoist.com, todoist.b-cdn.net or d1ysz50cxb9zwl.cloudfront.net.",
+        })
         .describe(
             "The URL of the attachment file to view. Get this from the fileUrl field in a comment's fileAttachment.",
         ),

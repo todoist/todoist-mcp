@@ -6,6 +6,7 @@ import { registeredTools } from '../tool-registry.js'
 type JsonSchemaNode = {
     type?: unknown
     maxItems?: unknown
+    pattern?: unknown
     properties?: Record<string, JsonSchemaNode>
     items?: JsonSchemaNode
     anyOf?: JsonSchemaNode[]
@@ -77,5 +78,24 @@ describe('advertised input schemas', () => {
         )
 
         expect(untyped).toEqual([])
+    })
+
+    // A client may check an argument against the advertised pattern before calling, and HTML's
+    // `pattern` attribute compiles it with the `v` flag, which is stricter than plain RegExp: an
+    // unescaped `-` at the end of a character class, for one, is a syntax error there.
+    it('advertise patterns that compile with the v flag', async () => {
+        const invalid = await collectInputSchemaPaths((node) => {
+            if (typeof node.pattern !== 'string') {
+                return false
+            }
+            try {
+                new RegExp(node.pattern, 'v')
+                return false
+            } catch {
+                return true
+            }
+        })
+
+        expect(invalid).toEqual([])
     })
 })

@@ -72,6 +72,11 @@ describe(`${IMPORT_PROJECT_TEMPLATE} tool`, () => {
                 expected: 'product-launch',
             },
             {
+                name: 'an upper-case URL',
+                input: 'HTTPS://WWW.TODOIST.COM/templates/product-launch',
+                expected: 'product-launch',
+            },
+            {
                 name: 'surrounding whitespace',
                 input: '  product-launch  ',
                 expected: 'product-launch',
@@ -118,6 +123,9 @@ describe(`${IMPORT_PROJECT_TEMPLATE} tool`, () => {
             'https://www.todoist.com/templates/product-launch?ref=nav#top',
             'https://app.todoist.com/app/templates/category/my-templates/UT_28ExampleTemplateId000001/view',
             'https://todoist.com/templates/product-launch/',
+            // Hostnames and the scheme are case-insensitive, and a pasted link may be shouted.
+            'https://WWW.TODOIST.COM/templates/product-launch',
+            'HTTPS://Todoist.com/templates/product-launch',
         ])('should accept %s', (templateId) => {
             expect(schema.safeParse({ projectId: TEST_IDS.PROJECT_TEST, templateId }).success).toBe(
                 true,
@@ -138,6 +146,17 @@ describe(`${IMPORT_PROJECT_TEMPLATE} tool`, () => {
                 false,
             )
             expect(advertisedPattern.test(templateId)).toBe(false)
+        })
+
+        it('should explain a rejected templateId in words, not as the pattern', () => {
+            const result = schema.safeParse({
+                projectId: TEST_IDS.PROJECT_TEST,
+                templateId: 'https://attacker.example/templates/product-launch',
+            })
+
+            expect(result.error?.issues[0]?.message).toBe(
+                'Pass a template slug ("product-launch"), a template ID ("UT_..."), or an https URL on todoist.com or one of its subdomains.',
+            )
         })
     })
 

@@ -57,12 +57,26 @@ function isTodoistHost(hostname: string): boolean {
 }
 
 /**
- * The forms `extractTemplateId` reads: a bare gallery slug or template ID, or
- * an https URL on todoist.com or one of its subdomains. Stated in the schema so
- * a client can see that the parameter cannot name any other host.
+ * Pattern source matching `text` in any letter case. JSON Schema patterns carry
+ * no flags, so an `i` flag would be dropped from the advertised pattern while
+ * the server kept applying it.
  */
-const TEMPLATE_ID_PATTERN =
-    /^\s*(?:[A-Za-z0-9_-]+|https:\/\/(?:[A-Za-z0-9-]+\.)*todoist\.com(?:\/\S*)?)\s*$/
+function anyCase(text: string): string {
+    return text
+        .replace(/[a-z]/gi, (letter) => `[${letter.toUpperCase()}${letter.toLowerCase()}]`)
+        .replace(/\./g, '\\.')
+}
+
+/**
+ * The forms `extractTemplateId` reads: a bare gallery slug or template ID, or
+ * an https URL on todoist.com or one of its subdomains, in any letter case.
+ * Stated in the schema so a client can see that the parameter cannot name any
+ * other host. Every `-` in a character class is escaped so the pattern also
+ * compiles with the `v` flag that HTML's `pattern` attribute uses.
+ */
+const TEMPLATE_ID_PATTERN = new RegExp(
+    String.raw`^\s*(?:[A-Za-z0-9_\-]+|${anyCase('https')}:\/\/(?:[A-Za-z0-9\-]+\.)*${anyCase('todoist.com')}(?:\/\S*)?)\s*$`,
+)
 
 const ArgsSchema = {
     projectId: z
@@ -71,7 +85,9 @@ const ArgsSchema = {
         .describe('The ID of the existing project to import the template into.'),
     templateId: z
         .string()
-        .regex(TEMPLATE_ID_PATTERN)
+        .regex(TEMPLATE_ID_PATTERN, {
+            error: 'Pass a template slug ("product-launch"), a template ID ("UT_..."), or an https URL on todoist.com or one of its subdomains.',
+        })
         .optional()
         .describe(
             'The template to import — either a gallery slug ("product-launch"), a personal template ID ("UT_28Ex..."), or a full Todoist template URL, which is reduced to the ID automatically. Gallery templates work for anyone; personal templates only for the account that owns them. There is no way to list templates through this server, so only use the ID or URL the user supplied. Provide either this or `csvFileContent`, not both.',
