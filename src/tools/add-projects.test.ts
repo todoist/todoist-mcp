@@ -1262,7 +1262,7 @@ describe(`${ADD_PROJECTS} tool`, () => {
         })
 
         // templateId is model-supplied, so the schema narrows it to Todoist hosts, as
-        // import-project-template's does. Clients read the advertised pattern.
+        // import-into-project's does. Clients read the advertised pattern.
         describe('templateId validation', () => {
             const schema = z.object(addProjects.parameters)
             const advertised = z.toJSONSchema(schema).properties?.projects

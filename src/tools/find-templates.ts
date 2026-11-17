@@ -50,7 +50,7 @@ const OutputSchema = {
 const findTemplates = {
     name: ToolNames.FIND_TEMPLATES,
     description:
-        "Search the Todoist gallery's project templates and the user's personal and workspace ones, to find a template's ID for add-projects, import-project-template, fetch-object or update-template.",
+        "Search the Todoist gallery's project templates and the user's personal and workspace ones, to find a template's ID for add-projects, import-into-project, fetch-object or update-template.",
     parameters: ArgsSchema,
     outputSchema: OutputSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },

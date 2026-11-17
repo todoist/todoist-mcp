@@ -26,9 +26,9 @@ import {
 import { appendFailureSummary } from '../utils/response-builders.js'
 import { executeCreateWithRetry, executeWithRetry, mayHaveCreated } from '../utils/retry.js'
 import { settleSyncCommands } from '../utils/sync-commands.js'
+import { extractTemplateId, TEMPLATE_ID_PATTERN } from '../utils/template-ids.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { workspaceResolver } from '../utils/workspace-resolver.js'
-import { extractTemplateId, TEMPLATE_ID_PATTERN } from './import-project-template.js'
 
 const { FIND_FOLDERS, FIND_PROJECTS } = ToolNames
 
@@ -47,7 +47,7 @@ const ProjectSchema = z.object({
         .regex(TEMPLATE_ID_PATTERN)
         .optional()
         .describe(
-            'Create the project from a template, with its sections, tasks and comments: a gallery slug ("product-launch"), a saved template ID ("UT_28Ex..."), or a Todoist template URL. With a template, only name, workspace, folderId and locale apply. To add a template to an existing project, use import-project-template.',
+            'Create the project from a template, with its sections, tasks and comments: a gallery slug ("product-launch"), a saved template ID ("UT_28Ex..."), or a Todoist template URL. With a template, only name, workspace, folderId and locale apply. To add a template to an existing project, use import-into-project.',
         ),
     parentId: z
         .string()

@@ -81,7 +81,7 @@ export const ToolNames = {
 
     // Template tools
     EXPORT_PROJECT: 'export-project',
-    IMPORT_PROJECT_TEMPLATE: 'import-project-template',
+    IMPORT_INTO_PROJECT: 'import-into-project',
     ADD_TEMPLATE: 'add-template',
     FIND_TEMPLATES: 'find-templates',
     UPDATE_TEMPLATE: 'update-template',

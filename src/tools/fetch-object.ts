@@ -19,8 +19,8 @@ import {
     toSectionSummary,
 } from '../utils/output-schemas.js'
 import { outlineTemplateContent, toToolTemplateContent } from '../utils/template-content.js'
+import { extractTemplateId, TEMPLATE_ID_PATTERN } from '../utils/template-ids.js'
 import { ToolNames } from '../utils/tool-names.js'
-import { extractTemplateId, TEMPLATE_ID_PATTERN } from './import-project-template.js'
 
 const ObjectTypes = ['task', 'project', 'comment', 'section', 'template'] as const
 

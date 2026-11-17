@@ -10,9 +10,9 @@ import {
     TemplateContentSchema,
     toSdkTemplateContent,
 } from '../utils/template-content.js'
+import { extractTemplateId, TEMPLATE_ID_PATTERN } from '../utils/template-ids.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { workspaceResolver } from '../utils/workspace-resolver.js'
-import { extractTemplateId, TEMPLATE_ID_PATTERN } from './import-project-template.js'
 
 const ArgsSchema = {
     templateId: z

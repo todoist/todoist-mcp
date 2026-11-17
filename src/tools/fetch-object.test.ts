@@ -768,7 +768,7 @@ describe(`${FETCH_OBJECT} tool`, () => {
         })
 
         // id can be a template URL, so the schema narrows it to Todoist hosts, as
-        // import-project-template's templateId does. Clients read the advertised pattern.
+        // import-into-project's templateId does. Clients read the advertised pattern.
         describe('id validation', () => {
             const schema = z.object(fetchObject.parameters)
             const pattern = getAdvertisedPattern(fetchObject.parameters, 'id')

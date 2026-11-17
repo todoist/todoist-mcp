@@ -56,7 +56,7 @@ What each tool does and how to fill its parameters is in the tool's own descript
 
 **Templates**
 
-- Find a template with **find-templates** when the user names one without its ID or URL. Start a new project from one with **add-projects** and its templateId; add one to an existing project with **import-project-template**. Both write immediately and cannot be undone.
+- Find a template with **find-templates** when the user names one without its ID or URL. Start a new project from one with **add-projects** and its templateId; add one to an existing project with **import-into-project**. Both write immediately and cannot be undone.
 - "Save as template", a template from CSV, and a template from scratch all use **add-template**, which saves a reusable template in the user's Todoist. **export-project** returns a CSV file or download link instead. Edit, move or share a saved template with **update-template**. To change what a template contains (layout, sections, tasks), fetch it with **fetch-object**, then send the edited content back to **update-template**.
 
 **Project health**
