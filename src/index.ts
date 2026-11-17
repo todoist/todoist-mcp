@@ -20,6 +20,7 @@ import { addReminders } from './tools/add-reminders.js'
 import { addSections } from './tools/add-sections.js'
 // Task management tools
 import { addTasks } from './tools/add-tasks.js'
+import { addTemplate } from './tools/add-template.js'
 import { analyzeProjectHealth } from './tools/analyze-project-health.js'
 import { completeTasks } from './tools/complete-tasks.js'
 // General tools
@@ -124,6 +125,7 @@ export {
     // Template tools
     exportProjectTemplate,
     importProjectTemplate,
+    addTemplate,
     // Workspace tools
     listWorkspaces,
     // Attachment tools

@@ -94,6 +94,20 @@ export const BatchLimits = {
     LABELS_PER_TASK: 50,
 } as const
 
+// Template Content Limits
+export const TemplateContentLimits = {
+    /** A template creates one project; the backend rejects more. */
+    PROJECTS: 1,
+    /** The API takes at most one set of calendar settings. */
+    PROJECT_VIEW_OPTIONS: 1,
+    /**
+     * Maximum sections, tasks or comments in one template's content. The API sets no
+     * limit; this one is far above real templates (the gallery's Weekly Review has 26
+     * tasks) and still bounds what one call can write.
+     */
+    ITEMS: 500,
+} as const
+
 // Concurrency Limits
 //
 // These bound in-flight requests per account **within one process**. Nothing is
