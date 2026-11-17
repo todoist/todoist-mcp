@@ -97,6 +97,7 @@ const TasksUpdateSchema = z.object({
         ),
     labels: z
         .array(z.string())
+        .max(BatchLimits.LABELS_PER_TASK)
         .optional()
         .describe('The new labels for the task. Replaces all existing labels.'),
     isUncompletable: z

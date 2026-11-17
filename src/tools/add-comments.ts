@@ -10,7 +10,7 @@ import {
     getDefaultCommentRecipients,
     isNoNotifyList,
 } from '../utils/comment-recipients.js'
-import { ApiLimits } from '../utils/constants.js'
+import { ApiLimits, BatchLimits } from '../utils/constants.js'
 import { CommentSchema as CommentOutputSchema, FailureSchema } from '../utils/output-schemas.js'
 import { appendFailureSummary } from '../utils/response-builders.js'
 import { executeCreateWithRetry, executeWithRetry } from '../utils/retry.js'
@@ -37,7 +37,11 @@ const CommentSchema = z.object({
 })
 
 const ArgsSchema = {
-    comments: z.array(CommentSchema).min(1).describe('The array of comments to add.'),
+    comments: z
+        .array(CommentSchema)
+        .min(1)
+        .max(BatchLimits.ITEMS_PER_OPERATION)
+        .describe('The array of comments to add.'),
 }
 
 const OutputSchema = {

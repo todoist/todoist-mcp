@@ -5,6 +5,7 @@ import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
 import { isWorkspaceProject } from '../tool-helpers.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
+import { BatchLimits } from '../utils/constants.js'
 import { computeOrderKeys, type OrderedSibling, type Placement } from '../utils/order-keys.js'
 import { FailureSchema } from '../utils/output-schemas.js'
 import { appendFailureSummary } from '../utils/response-builders.js'
@@ -42,6 +43,7 @@ const ArgsSchema = {
     items: z
         .array(ReorderItemSchema)
         .min(1)
+        .max(BatchLimits.BULK_ACTIONS_PER_OPERATION)
         .describe(
             'Each item needs order and/or parentId. Moves happen first, so order is a position under the new parent.',
         ),

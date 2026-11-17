@@ -68,6 +68,16 @@ A tool that writes a list of items settles each item on its own and returns the 
 
 `src/tools/batch-failures-contract.test.ts` enforces this for every non-read-only tool with a list parameter. The exceptions, including tools not converted yet, are listed there with the reason for each.
 
+### Input schemas: cap every array, type every branch
+
+Directory reviews (Gemini Connected Apps) read the advertised input schemas, as does every model filling a call.
+
+- Give every input array a `.max()`, from `BatchLimits` or `ApiLimits` in `src/utils/constants.ts`. An uncapped list lets one runaway call write or notify without limit.
+- Don't stack two string checks that each carry a regex, such as `.date().regex()`: the JSON Schema becomes an `allOf` of untyped branches. Use one check (`z.iso.date()`).
+- A model-supplied URL or reference that the server acts on names its allowed hosts in a `.regex()`, so the restriction is in the schema and not only in the runtime check (see `view-attachment`, `import-project-template`).
+
+`src/tools/input-schema-contract.test.ts` enforces the first two across every registered tool.
+
 ### Removing/Clearing Optional Fields
 
 When you need to support clearing an optional field:

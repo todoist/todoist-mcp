@@ -43,7 +43,11 @@ const TaskSchema = z.object({
         'The deadline date for the task in ISO 8601 format (YYYY-MM-DD, e.g., "2025-12-31"). Deadlines are immovable constraints shown with a different indicator than due dates.',
     ),
     duration: optionalString(DURATION_INPUT_DESCRIPTION),
-    labels: z.array(z.string()).optional().describe('The labels to attach to the task.'),
+    labels: z
+        .array(z.string())
+        .max(BatchLimits.LABELS_PER_TASK)
+        .optional()
+        .describe('The labels to attach to the task.'),
     projectId: optionalString(
         'The project ID to add this task to. Project ID should be an ID string, or the text "inbox", for inbox tasks.',
     ),

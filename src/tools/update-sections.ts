@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
+import { BatchLimits } from '../utils/constants.js'
 import {
     FailureSchema,
     SectionSchema as SectionOutputSchema,
@@ -36,7 +37,11 @@ const SectionUpdateSchema = z
     })
 
 const ArgsSchema = {
-    sections: z.array(SectionUpdateSchema).min(1).describe('The sections to update.'),
+    sections: z
+        .array(SectionUpdateSchema)
+        .min(1)
+        .max(BatchLimits.ITEMS_PER_OPERATION)
+        .describe('The sections to update.'),
 }
 
 const OutputSchema = {

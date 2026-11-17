@@ -5,6 +5,7 @@ import { formatBatchItemError } from '../tool-execution-error.js'
 import { mapProject } from '../tool-helpers.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
 import { ColorSchema } from '../utils/colors.js'
+import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema, ProjectSchema as ProjectOutputSchema } from '../utils/output-schemas.js'
 import {
     assertPersonalProjectCapacity,
@@ -47,7 +48,11 @@ const ProjectSchema = z.object({
 })
 
 const ArgsSchema = {
-    projects: z.array(ProjectSchema).min(1).describe('The array of projects to add.'),
+    projects: z
+        .array(ProjectSchema)
+        .min(1)
+        .max(BatchLimits.ITEMS_PER_OPERATION)
+        .describe('The array of projects to add.'),
 }
 
 const OutputSchema = {

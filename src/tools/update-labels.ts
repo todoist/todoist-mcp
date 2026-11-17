@@ -4,6 +4,7 @@ import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
 import { ColorSchema } from '../utils/colors.js'
+import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema, LabelSchema as LabelOutputSchema } from '../utils/output-schemas.js'
 import { appendFailureSummary } from '../utils/response-builders.js'
 import { executeWithRetry } from '../utils/retry.js'
@@ -40,6 +41,7 @@ const ArgsSchema = {
     labels: z
         .array(LabelUpdateSchema)
         .min(1)
+        .max(BatchLimits.ITEMS_PER_OPERATION)
         .describe(
             'The labels to update. Use labelType="personal" with an ID to update a personal label, or labelType="shared" with name+newName to rename a shared label.',
         ),

@@ -4,6 +4,7 @@ import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
 import { ColorOutputSchema, ColorSchema } from '../utils/colors.js'
+import { BatchLimits } from '../utils/constants.js'
 import { readFilterDescription } from '../utils/filter-description.js'
 import { FailureSchema } from '../utils/output-schemas.js'
 import { appendFailureSummary } from '../utils/response-builders.js'
@@ -41,7 +42,11 @@ type FilterUpdate = z.infer<typeof FilterUpdateSchema>
 type SkipReason = 'no-fields'
 
 const ArgsSchema = {
-    filters: z.array(FilterUpdateSchema).min(1).describe('The filters to update.'),
+    filters: z
+        .array(FilterUpdateSchema)
+        .min(1)
+        .max(BatchLimits.ITEMS_PER_OPERATION)
+        .describe('The filters to update.'),
 }
 
 const OutputSchema = {

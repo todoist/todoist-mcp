@@ -4,6 +4,7 @@ import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
 import { ColorOutputSchema, ColorSchema } from '../utils/colors.js'
+import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema } from '../utils/output-schemas.js'
 import { appendFailureSummary } from '../utils/response-builders.js'
 import { optionalString } from '../utils/schema-helpers.js'
@@ -29,7 +30,11 @@ const FilterSchema = z.object({
 })
 
 const ArgsSchema = {
-    filters: z.array(FilterSchema).min(1).describe('The array of filters to add.'),
+    filters: z
+        .array(FilterSchema)
+        .min(1)
+        .max(BatchLimits.ITEMS_PER_OPERATION)
+        .describe('The array of filters to add.'),
 }
 
 const OutputSchema = {

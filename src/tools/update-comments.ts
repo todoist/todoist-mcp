@@ -3,6 +3,7 @@ import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
 import { mapComment } from '../tool-helpers.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
+import { BatchLimits } from '../utils/constants.js'
 import { CommentSchema as CommentOutputSchema, FailureSchema } from '../utils/output-schemas.js'
 import { appendFailureSummary } from '../utils/response-builders.js'
 import { executeWithRetry } from '../utils/retry.js'
@@ -14,7 +15,11 @@ const CommentUpdateSchema = z.object({
 })
 
 const ArgsSchema = {
-    comments: z.array(CommentUpdateSchema).min(1).describe('The comments to update.'),
+    comments: z
+        .array(CommentUpdateSchema)
+        .min(1)
+        .max(BatchLimits.ITEMS_PER_OPERATION)
+        .describe('The comments to update.'),
 }
 
 const OutputSchema = {

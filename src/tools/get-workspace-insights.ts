@@ -1,6 +1,7 @@
 import { HEALTH_STATUSES } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
+import { ApiLimits } from '../utils/constants.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { workspaceResolver } from '../utils/workspace-resolver.js'
 
@@ -14,6 +15,7 @@ const ArgsSchema = {
     projectIds: z
         .array(z.string().min(1))
         .min(1)
+        .max(ApiLimits.FILTER_VALUES_MAX)
         .optional()
         .describe('Optional list of project IDs to scope insights to specific projects.'),
 }

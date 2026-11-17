@@ -4,6 +4,7 @@ import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
 import { ColorSchema } from '../utils/colors.js'
+import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema, LabelSchema as LabelOutputSchema } from '../utils/output-schemas.js'
 import { appendFailureSummary } from '../utils/response-builders.js'
 import { executeCreateWithRetry } from '../utils/retry.js'
@@ -20,7 +21,11 @@ const LabelSchema = z.object({
 })
 
 const ArgsSchema = {
-    labels: z.array(LabelSchema).min(1).describe('The array of labels to add.'),
+    labels: z
+        .array(LabelSchema)
+        .min(1)
+        .max(BatchLimits.ITEMS_PER_OPERATION)
+        .describe('The array of labels to add.'),
 }
 
 const OutputSchema = {

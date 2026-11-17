@@ -2,12 +2,17 @@ import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
+import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema } from '../utils/output-schemas.js'
 import { summarizeBatch } from '../utils/response-builders.js'
 import { ToolNames } from '../utils/tool-names.js'
 
 const ArgsSchema = {
-    ids: z.array(z.string().min(1)).min(1).describe('The IDs of the tasks to complete.'),
+    ids: z
+        .array(z.string().min(1))
+        .min(1)
+        .max(BatchLimits.BULK_ACTIONS_PER_OPERATION)
+        .describe('The IDs of the tasks to complete.'),
 }
 
 const OutputSchema = {

@@ -1,10 +1,16 @@
 import { z } from 'zod'
+import { ApiLimits } from './constants.js'
 
 const LABELS_OPERATORS = ['and', 'or'] as const
 type LabelsOperator = (typeof LABELS_OPERATORS)[number]
 
 export const LabelsSchema = {
-    labels: z.string().array().optional().describe('The labels to filter the tasks by'),
+    labels: z
+        .string()
+        .array()
+        .max(ApiLimits.FILTER_VALUES_MAX)
+        .optional()
+        .describe('The labels to filter the tasks by'),
     labelsOperator: z
         .enum(LABELS_OPERATORS)
         .optional()

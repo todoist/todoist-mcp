@@ -4,6 +4,7 @@ import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
 import { isInboxProjectId, resolveInboxProjectId } from '../tool-helpers.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
+import { BatchLimits } from '../utils/constants.js'
 import {
     FailureSchema,
     SectionSchema as SectionOutputSchema,
@@ -28,7 +29,11 @@ const SectionSchema = z.object({
 })
 
 const ArgsSchema = {
-    sections: z.array(SectionSchema).min(1).describe('The array of sections to add.'),
+    sections: z
+        .array(SectionSchema)
+        .min(1)
+        .max(BatchLimits.ITEMS_PER_OPERATION)
+        .describe('The array of sections to add.'),
 }
 
 const OutputSchema = {

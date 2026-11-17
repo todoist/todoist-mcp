@@ -5,6 +5,7 @@ import { formatBatchItemError } from '../tool-execution-error.js'
 import { mapProject } from '../tool-helpers.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
 import { ColorSchema } from '../utils/colors.js'
+import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema, ProjectSchema as ProjectOutputSchema } from '../utils/output-schemas.js'
 import { appendFailureSummary } from '../utils/response-builders.js'
 import { executeWithRetry } from '../utils/retry.js'
@@ -35,7 +36,11 @@ type ProjectUpdate = z.infer<typeof ProjectUpdateSchema>
 type SkipReason = 'no-fields' | 'no-valid-values'
 
 const ArgsSchema = {
-    projects: z.array(ProjectUpdateSchema).min(1).describe('The projects to update.'),
+    projects: z
+        .array(ProjectUpdateSchema)
+        .min(1)
+        .max(BatchLimits.ITEMS_PER_OPERATION)
+        .describe('The projects to update.'),
 }
 
 const OutputSchema = {

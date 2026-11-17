@@ -49,6 +49,8 @@ export const ApiLimits = {
     REMINDERS_DEFAULT: 50,
     /** Maximum limit for reminder search operations */
     REMINDERS_MAX: 200,
+    /** Maximum values in one list-valued filter parameter, such as labels or project IDs */
+    FILTER_VALUES_MAX: 50,
 } as const
 
 // UI Display Limits
@@ -69,6 +71,16 @@ export const LogLimits = {
 export const BatchLimits = {
     /** Maximum tasks accepted by one task create or update operation */
     TASKS_PER_OPERATION: 25,
+    /** Maximum projects, sections, comments, labels or filters created or updated by one call */
+    ITEMS_PER_OPERATION: 25,
+    /**
+     * Maximum existing objects one bulk action takes by ID, such as completing,
+     * rescheduling or reordering. Sync-backed actions send one command per
+     * object, and the Sync API accepts at most 100 commands per request.
+     */
+    BULK_ACTIONS_PER_OPERATION: 50,
+    /** Maximum labels set on one task by one call */
+    LABELS_PER_TASK: 50,
 } as const
 
 // Concurrency Limits

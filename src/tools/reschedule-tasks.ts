@@ -5,6 +5,7 @@ import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
 import { mapTask } from '../tool-helpers.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
+import { BatchLimits } from '../utils/constants.js'
 import { parseItemDuration } from '../utils/duration-parser.js'
 import { FailureSchema, TaskSchema as TaskOutputSchema } from '../utils/output-schemas.js'
 import { appendFailureSummary, summarizeTaskOperation } from '../utils/response-builders.js'
@@ -31,6 +32,7 @@ const ArgsSchema = {
     tasks: z
         .array(TaskRescheduleSchema)
         .min(1)
+        .max(BatchLimits.BULK_ACTIONS_PER_OPERATION)
         .describe('The tasks to reschedule with their new dates.'),
 }
 
