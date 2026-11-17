@@ -20,6 +20,7 @@ const mockTodoistApi = {
     deleteReminder: vi.fn(),
     deleteLocationReminder: vi.fn(),
     deleteFilter: vi.fn(),
+    deleteTemplate: vi.fn(),
     getWorkspaces: vi.fn(),
     getWorkspaceActiveProjects: vi.fn(),
 } as unknown as Mocked<TodoistApi>
@@ -274,6 +275,38 @@ describe(`${DELETE_OBJECT} tool`, () => {
             await expect(
                 deleteObject.execute({ type: 'filter', id: 'non-existent-filter' }, mockTodoistApi),
             ).rejects.toThrow('API Error: Filter not found')
+        })
+    })
+
+    describe('deleting templates', () => {
+        it('should delete a saved template by ID', async () => {
+            mockTodoistApi.deleteTemplate.mockResolvedValue(true)
+
+            const result = await deleteObject.execute(
+                { type: 'template', id: 'UT_28Rc62VC22j439VcPJMw9xgWx2' },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.deleteTemplate).toHaveBeenCalledWith(
+                'UT_28Rc62VC22j439VcPJMw9xgWx2',
+            )
+            expect(result.textContent).toContain(
+                'Deleted template: id=UT_28Rc62VC22j439VcPJMw9xgWx2',
+            )
+            expect(result.structuredContent).toEqual({
+                deletedEntity: { type: 'template', id: 'UT_28Rc62VC22j439VcPJMw9xgWx2' },
+                success: true,
+            })
+        })
+
+        it('should propagate template deletion errors', async () => {
+            mockTodoistApi.deleteTemplate.mockRejectedValue(
+                new Error('API Error: Template not found'),
+            )
+
+            await expect(
+                deleteObject.execute({ type: 'template', id: 'UT_missing' }, mockTodoistApi),
+            ).rejects.toThrow('API Error: Template not found')
         })
     })
 

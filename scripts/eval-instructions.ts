@@ -187,6 +187,16 @@ const SCENARIOS: Scenario[] = [
         guards: 'instructions: workspace projects archive before delete',
     },
     {
+        id: 'delete-saved-template',
+        prompt: 'Delete my saved template UT_28Rc62VC22j439VcPJMw9xgWx2, I made it by mistake.',
+        expect: [ToolNames.DELETE_OBJECT],
+        check: (input) =>
+            input.type === 'template' && input.id === 'UT_28Rc62VC22j439VcPJMw9xgWx2'
+                ? null
+                : `not a template deletion: ${JSON.stringify(input)}`,
+        guards: 'tool description: delete-object deletes saved templates',
+    },
+    {
         id: 'priority-string',
         prompt: 'Set task 6XG4Vw2c9J to high priority.',
         expect: [ToolNames.UPDATE_TASKS],
