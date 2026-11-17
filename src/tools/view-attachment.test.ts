@@ -1,6 +1,7 @@
 import type { FileResponse, TodoistApi } from '@todoist/sdk'
 import type { Mocked } from 'vitest'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { viewAttachment } from './view-attachment.js'
 
 function createMockResponse({
@@ -58,6 +59,39 @@ describe('view-attachment tool', () => {
         expect(viewAttachment.annotations.readOnlyHint).toBe(true)
         expect(viewAttachment.annotations.destructiveHint).toBe(false)
         expect(viewAttachment.annotations.idempotentHint).toBe(true)
+    })
+
+    // The model can be steered by text in a shared task or comment, so fileUrl must not be able to
+    // point the server at an arbitrary host. Clients read the advertised JSON Schema pattern; the
+    // server enforces the same rule through the Zod schema.
+    describe('fileUrl validation', () => {
+        const schema = z.object(viewAttachment.parameters)
+        const advertised = z.toJSONSchema(schema).properties?.fileUrl
+        if (typeof advertised !== 'object' || typeof advertised.pattern !== 'string') {
+            throw new Error('fileUrl is advertised without a pattern')
+        }
+        const advertisedPattern = new RegExp(advertised.pattern)
+
+        it.each([
+            'https://files.todoist.com/upload/file.png',
+            'https://todoist.b-cdn.net/upload/file.png?token=abc',
+            'https://d1ysz50cxb9zwl.cloudfront.net/upload/file.pdf',
+        ])('should accept the Todoist attachment URL %s', (fileUrl) => {
+            expect(schema.safeParse({ fileUrl }).success).toBe(true)
+            expect(advertisedPattern.test(fileUrl)).toBe(true)
+        })
+
+        it.each([
+            ['an external host', 'https://attacker.example/collect?task=secret'],
+            ['plain http', 'http://files.todoist.com/upload/file.png'],
+            ['a look-alike host', 'https://files.todoist.com.attacker.example/file.png'],
+            ['credentials before the host', 'https://files.todoist.com@attacker.example/file.png'],
+            ['an explicit port', 'https://files.todoist.com:8443/file.png'],
+            ['another Todoist host', 'https://api.todoist.com/api/v1/user'],
+        ])('should reject %s', (_name, fileUrl) => {
+            expect(schema.safeParse({ fileUrl }).success).toBe(false)
+            expect(advertisedPattern.test(fileUrl)).toBe(false)
+        })
     })
 
     it('should call client.viewAttachment with the file URL', async () => {

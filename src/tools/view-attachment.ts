@@ -75,9 +75,20 @@ function getFileNameFromUrl(url: string): string | undefined {
     }
 }
 
+/**
+ * The attachment hosts the SDK will fetch from: the authenticated
+ * `files.todoist.com`, and the CDNs it redirects to. The SDK refuses any other
+ * host, but only once the call is running; stating the same allowlist in the
+ * schema lets a client see, before calling, that `fileUrl` cannot point the
+ * server anywhere else.
+ */
+const ATTACHMENT_URL_PATTERN =
+    /^https:\/\/(?:files\.todoist\.com|todoist\.b-cdn\.net|d1ysz50cxb9zwl\.cloudfront\.net)\/\S*$/
+
 const ArgsSchema = {
     fileUrl: z
         .url()
+        .regex(ATTACHMENT_URL_PATTERN)
         .describe(
             "The URL of the attachment file to view. Get this from the fileUrl field in a comment's fileAttachment.",
         ),

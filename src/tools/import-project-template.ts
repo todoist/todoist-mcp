@@ -56,6 +56,14 @@ function isTodoistHost(hostname: string): boolean {
     return host === 'todoist.com' || host.endsWith('.todoist.com')
 }
 
+/**
+ * The forms `extractTemplateId` reads: a bare gallery slug or template ID, or
+ * an https URL on todoist.com or one of its subdomains. Stated in the schema so
+ * a client can see that the parameter cannot name any other host.
+ */
+const TEMPLATE_ID_PATTERN =
+    /^\s*(?:[A-Za-z0-9_-]+|https:\/\/(?:[A-Za-z0-9-]+\.)*todoist\.com(?:\/\S*)?)\s*$/
+
 const ArgsSchema = {
     projectId: z
         .string()
@@ -63,6 +71,7 @@ const ArgsSchema = {
         .describe('The ID of the existing project to import the template into.'),
     templateId: z
         .string()
+        .regex(TEMPLATE_ID_PATTERN)
         .optional()
         .describe(
             'The template to import — either a gallery slug ("product-launch"), a personal template ID ("UT_28Ex..."), or a full Todoist template URL, which is reduced to the ID automatically. Gallery templates work for anyone; personal templates only for the account that owns them. There is no way to list templates through this server, so only use the ID or URL the user supplied. Provide either this or `csvFileContent`, not both.',

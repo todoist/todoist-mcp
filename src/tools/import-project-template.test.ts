@@ -1,5 +1,6 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { z } from 'zod'
 import { createMockSection, createMockTask, TEST_IDS } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { extractTemplateId, importProjectTemplate } from './import-project-template.js'
@@ -92,6 +93,47 @@ describe(`${IMPORT_PROJECT_TEMPLATE} tool`, () => {
             },
         ])('should reject $name', ({ input, error }) => {
             expect(() => extractTemplateId(input)).toThrow(error)
+        })
+    })
+
+    // templateId is model-supplied, so the schema itself narrows it to the forms extractTemplateId
+    // reads. Clients read the advertised JSON Schema pattern; the server enforces the same rule
+    // through the Zod schema.
+    describe('templateId validation', () => {
+        const schema = z.object(importProjectTemplate.parameters)
+        const advertised = z.toJSONSchema(schema).properties?.templateId
+        if (typeof advertised !== 'object' || typeof advertised.pattern !== 'string') {
+            throw new Error('templateId is advertised without a pattern')
+        }
+        const advertisedPattern = new RegExp(advertised.pattern)
+
+        it.each([
+            'product-launch',
+            'UT_28ExampleTemplateId000001',
+            '  product-launch  ',
+            'https://www.todoist.com/templates/product-launch?ref=nav#top',
+            'https://app.todoist.com/app/templates/category/my-templates/UT_28ExampleTemplateId000001/view',
+            'https://todoist.com/templates/product-launch/',
+        ])('should accept %s', (templateId) => {
+            expect(schema.safeParse({ projectId: TEST_IDS.PROJECT_TEST, templateId }).success).toBe(
+                true,
+            )
+            expect(advertisedPattern.test(templateId)).toBe(true)
+        })
+
+        it.each([
+            ['an external host', 'https://attacker.example/templates/product-launch'],
+            ['a host ending in the brand name', 'https://nottodoist.com/templates/product-launch'],
+            ['a look-alike host', 'https://todoist.com.attacker.example/templates/product-launch'],
+            ['credentials before the host', 'https://todoist.com@attacker.example/templates/x'],
+            ['plain http', 'http://todoist.com/templates/product-launch'],
+            ['another scheme', 'ftp://todoist.com/templates/product-launch'],
+            ['a path without a host', '../templates/product-launch'],
+        ])('should reject %s', (_name, templateId) => {
+            expect(schema.safeParse({ projectId: TEST_IDS.PROJECT_TEST, templateId }).success).toBe(
+                false,
+            )
+            expect(advertisedPattern.test(templateId)).toBe(false)
         })
     })
 
