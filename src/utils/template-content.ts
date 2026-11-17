@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { BatchLimits, TemplateContentLimits } from './constants.js'
 import { convertNumberToPriority, convertPriorityToNumber, PrioritySchema } from './priorities.js'
 
-// get-template returns complete dates; a new date can be just `string`. Send dates back as
+// fetch-object returns a template's complete dates; a new date can be just `string`. Send dates back as
 // received so their type, time and timezone are kept.
 const ContentDateSchema = z.object({
     date: z.string().optional().describe('ISO date or datetime.'),
@@ -26,7 +26,7 @@ const ContentCommentFields = {
 }
 
 /**
- * A template's full content, as get-template returns it and update-template takes it back.
+ * A template's full content, as fetch-object returns it and update-template takes it back.
  * IDs are references within the content only.
  */
 const TemplateContentSchema = z.object({
