@@ -6,13 +6,14 @@ import {
     assignmentValidator,
     type ValidationResult,
 } from '../utils/assignment-validator.js'
+import { BatchLimits } from '../utils/constants.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { userResolver } from '../utils/user-resolver.js'
 
 const { FIND_TASKS, FIND_PROJECT_COLLABORATORS, UPDATE_TASKS } = ToolNames
 
 // Maximum tasks per operation to prevent abuse and timeouts
-const MAX_TASKS_PER_OPERATION = 50
+const MAX_TASKS_PER_OPERATION = BatchLimits.BULK_ACTIONS_PER_OPERATION
 
 const ArgsSchema = {
     operation: z

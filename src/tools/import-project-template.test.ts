@@ -1,7 +1,12 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { z } from 'zod'
-import { createMockSection, createMockTask, TEST_IDS } from '../utils/test-helpers.js'
+import {
+    createMockSection,
+    createMockTask,
+    getAdvertisedPattern,
+    TEST_IDS,
+} from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { extractTemplateId, importProjectTemplate } from './import-project-template.js'
 
@@ -101,11 +106,10 @@ describe(`${IMPORT_PROJECT_TEMPLATE} tool`, () => {
     // through the Zod schema.
     describe('templateId validation', () => {
         const schema = z.object(importProjectTemplate.parameters)
-        const advertised = z.toJSONSchema(schema).properties?.templateId
-        if (typeof advertised !== 'object' || typeof advertised.pattern !== 'string') {
-            throw new Error('templateId is advertised without a pattern')
-        }
-        const advertisedPattern = new RegExp(advertised.pattern)
+        const advertisedPattern = getAdvertisedPattern(
+            importProjectTemplate.parameters,
+            'templateId',
+        )
 
         it.each([
             'product-launch',

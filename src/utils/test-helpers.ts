@@ -12,6 +12,7 @@ import type {
     WorkspaceProjectSummary,
 } from '@todoist/sdk'
 import type { Mocked } from 'vitest'
+import { z } from 'zod'
 import { type MappedTask } from '../tool-helpers'
 import { convertPriorityToNumber, type Priority } from './priorities'
 
@@ -297,6 +298,19 @@ export function createMappedTask(overrides: Partial<MappedTask> = {}): MappedTas
 /**
  * Common error messages used across tests.
  */
+/**
+ * The `pattern` a tool advertises for one of its string parameters, as a
+ * client reads it from the JSON Schema. Throws when the parameter has none, so
+ * a test that relies on the pattern cannot pass by matching everything.
+ */
+export function getAdvertisedPattern(parameters: z.ZodRawShape, property: string): RegExp {
+    const advertised = z.toJSONSchema(z.object(parameters)).properties?.[property]
+    if (typeof advertised !== 'object' || typeof advertised.pattern !== 'string') {
+        throw new Error(`${property} is advertised without a pattern`)
+    }
+    return new RegExp(advertised.pattern)
+}
+
 export const TEST_ERRORS = {
     API_RATE_LIMIT: 'API Error: Rate limit exceeded',
     API_UNAUTHORIZED: 'API Error: Unauthorized',

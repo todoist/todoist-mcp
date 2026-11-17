@@ -1,6 +1,7 @@
 import { listAdvertisedTools } from '@todoist/mcp-core/testing'
 import { describe, expect, it } from 'vitest'
 import { getMcpServer } from '../mcp-server.js'
+import { registeredTools } from '../tool-registry.js'
 
 type JsonSchemaNode = {
     type?: unknown
@@ -41,6 +42,8 @@ async function collectInputSchemaPaths(
     matches: (node: JsonSchemaNode) => boolean,
 ): Promise<string[]> {
     const tools = await listAdvertisedTools(getMcpServer({ token: 'test-token' }))
+    // An empty or partial surface would leave nothing to flag and pass vacuously.
+    expect(tools).toHaveLength(registeredTools.length)
     const paths: string[] = []
     for (const tool of tools) {
         walkSchema(tool.inputSchema as JsonSchemaNode, tool.name, (node, path) => {

@@ -2,6 +2,7 @@ import type { FileResponse, TodoistApi } from '@todoist/sdk'
 import type { Mocked } from 'vitest'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { getAdvertisedPattern } from '../utils/test-helpers.js'
 import { viewAttachment } from './view-attachment.js'
 
 function createMockResponse({
@@ -66,11 +67,7 @@ describe('view-attachment tool', () => {
     // server enforces the same rule through the Zod schema.
     describe('fileUrl validation', () => {
         const schema = z.object(viewAttachment.parameters)
-        const advertised = z.toJSONSchema(schema).properties?.fileUrl
-        if (typeof advertised !== 'object' || typeof advertised.pattern !== 'string') {
-            throw new Error('fileUrl is advertised without a pattern')
-        }
-        const advertisedPattern = new RegExp(advertised.pattern)
+        const advertisedPattern = getAdvertisedPattern(viewAttachment.parameters, 'fileUrl')
 
         it.each([
             'https://files.todoist.com/upload/file.png',

@@ -75,8 +75,10 @@ export const BatchLimits = {
     ITEMS_PER_OPERATION: 25,
     /**
      * Maximum existing objects one bulk action takes by ID, such as completing,
-     * rescheduling or reordering. Sync-backed actions send one command per
-     * object, and the Sync API accepts at most 100 commands per request.
+     * rescheduling, reordering or assigning. A sync-backed reschedule sends one
+     * command per task, which keeps it under the Sync API's 100 commands per
+     * request. A reorder is not bounded that way: it can rekey every sibling of
+     * the objects it moves, so its command count depends on the sibling list.
      */
     BULK_ACTIONS_PER_OPERATION: 50,
     /** Maximum labels set on one task by one call */
