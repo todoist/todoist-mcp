@@ -152,7 +152,7 @@ When adding new tool parameters:
 When adding new tool features:
 
 1. Update tool schema descriptions in the source file
-2. Update the `instructions` in `src/mcp-server.ts` only for cross-tool routing guidance
+2. Update the `instructions` in `src/mcp-server.ts` only for cross-tool routing guidance. Route to tools, never to an MCP prompt: some clients (Gemini Connected Apps) only call tools. `src/mcp-server.test.ts` enforces this
 3. Add tests demonstrating the feature
 4. Include examples in descriptions where helpful
 

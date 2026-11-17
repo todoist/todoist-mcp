@@ -67,7 +67,7 @@ What each tool does and how to fill its parameters is in the tool's own descript
 - Prefer a batch tool over one call per item.
 - Where a batch tool returns per-item \`failures\` alongside successes, one failure does not undo the rest: never retry the whole batch, re-send only the items whose failure reason is fixable. **reschedule-tasks** is the exception — it has no per-item failures and throws if any task fails, so retry it as a whole.
 
-Use the **productivity-analysis** prompt for a combined productivity review — it pulls together user-info, get-productivity-stats and find-completed-tasks.
+For a productivity review, call **get-productivity-stats**, then find what the user completed as described under "Finding things".
 
 Always provide clear, actionable task titles and descriptions. Use the overview tools to give users context about their workload and project status.
 `

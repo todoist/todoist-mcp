@@ -140,6 +140,14 @@ const SCENARIOS: Scenario[] = [
         guards: 'instructions: find-activity vs find-completed-tasks, over a bounded range, filtered to the asker',
     },
     {
+        // Either half of the review is a correct opener, and a model that wants
+        // both may send them in either order.
+        id: 'productivity-review',
+        prompt: 'How productive have I been this week?',
+        expect: [ToolNames.GET_PRODUCTIVITY_STATS, ToolNames.FIND_ACTIVITY],
+        guards: 'instructions: a productivity review is built from tools, not from the productivity-analysis prompt',
+    },
+    {
         id: 'resolve-person',
         prompt: 'Who is Sarah?',
         expect: [ToolNames.FIND_PROJECT_COLLABORATORS],
