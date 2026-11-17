@@ -130,6 +130,40 @@ describe(`${SET_USER_STATUS} tool`, () => {
         })
     })
 
+    it('sets an emoji-only status, sending a null message', async () => {
+        server.held = { message: null, emoji: '🤒', activeUntil: null, effects: {} }
+
+        const result = await setUserStatus.execute({ emoji: '🤒' }, mockTodoistApi)
+
+        expect(sentStatus()).toEqual({
+            message: null,
+            emoji: '🤒',
+            activeUntil: null,
+            effects: null,
+        })
+        expect(result.structuredContent).toStrictEqual({
+            hasStatus: true,
+            status: { emoji: '🤒', pauseNotifications: false, pauseActivity: false },
+        })
+        expect(result.textContent).toBe('Status set: 🤒\nUntil: no end')
+    })
+
+    it('accepts an emoji-only status held with its message left out', async () => {
+        server.held = { emoji: '🤒', effects: {} }
+
+        await expect(setUserStatus.execute({ emoji: '🤒' }, mockTodoistApi)).resolves.toMatchObject(
+            { structuredContent: { hasStatus: true } },
+        )
+    })
+
+    it('treats a held message as a mismatch when only an emoji was set', async () => {
+        server.held = { ...AWAY, emoji: '🤒' }
+
+        await expect(setUserStatus.execute({ emoji: '🤒' }, mockTodoistApi)).rejects.toThrow(
+            'reports a different one',
+        )
+    })
+
     it('pauses activity on its own', async () => {
         server.held = { ...AWAY, effects: { pauseActivity: {} } }
 
@@ -278,9 +312,12 @@ describe(`${SET_USER_STATUS} tool`, () => {
         expect(mockTodoistApi.sync).not.toHaveBeenCalled()
     })
 
-    it('requires a message unless clearing', async () => {
-        await expect(setUserStatus.execute({ emoji: '🎯' }, mockTodoistApi)).rejects.toThrow(
-            'message is required to set a status',
+    it.each([
+        ['nothing', {}],
+        ['only an end and a pause', { activeUntil: '2026-11-10T00:00:00Z', pauseActivity: true }],
+    ])('requires a message or an emoji unless clearing, when given %s', async (_label, args) => {
+        await expect(setUserStatus.execute(args, mockTodoistApi)).rejects.toThrow(
+            'message or emoji is required to set a status. Pass clear: true to remove it.',
         )
         expect(mockTodoistApi.sync).not.toHaveBeenCalled()
     })
@@ -480,6 +517,15 @@ describe(`${SET_USER_STATUS} tool`, () => {
             ['a whitespace-only emoji', { message: 'Away', emoji: '  ' }],
         ])('rejects %s', (_label, args) => {
             expect(schema.safeParse(args).success).toBe(false)
+        })
+
+        it('accepts an emoji without a message', () => {
+            expect(schema.parse({ emoji: ' 🤒 ' })).toEqual({ emoji: '🤒' })
+        })
+
+        it('tells the model a status can be only an emoji', () => {
+            expect(schema.shape.message.description).toContain('emoji-only')
+            expect(setUserStatus.description).toContain('a message, an emoji or both')
         })
 
         it('counts the 80-character limit in characters, not UTF-16 units', () => {

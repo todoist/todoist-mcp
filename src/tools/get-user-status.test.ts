@@ -1,6 +1,8 @@
 import type { SyncResponse, TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { z } from 'zod'
 import { ToolNames } from '../utils/tool-names.js'
+import { UserStatusOutputSchema } from '../utils/user-status.js'
 import { getUserStatus } from './get-user-status.js'
 
 const mockTodoistApi = {
@@ -59,6 +61,25 @@ describe(`${GET_USER_STATUS} tool`, () => {
             status: { message: 'Deep work', pauseNotifications: false, pauseActivity: false },
         })
         expect(result.textContent).toBe('Status: Deep work\nUntil: no end')
+    })
+
+    // A status can be just an emoji, which Todoist returns with a null or absent message.
+    it.each([
+        ['null', { message: null, emoji: '🎯', activeUntil: null, effects: {} }],
+        ['absent', { emoji: '🎯', effects: {} }],
+    ])('reports an emoji-only status whose message is %s', async (_label, status) => {
+        mockTodoistApi.sync.mockResolvedValue({ user: { status } } as unknown as SyncResponse)
+
+        const result = await getUserStatus.execute({}, mockTodoistApi)
+
+        expect(result.structuredContent).toStrictEqual({
+            hasStatus: true,
+            status: { emoji: '🎯', pauseNotifications: false, pauseActivity: false },
+        })
+        expect(z.object(UserStatusOutputSchema).safeParse(result.structuredContent).success).toBe(
+            true,
+        )
+        expect(result.textContent).toBe('Status: 🎯\nUntil: no end')
     })
 
     it('reports no status when there is none', async () => {

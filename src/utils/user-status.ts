@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { executeWithRetry } from './retry.js'
 
 const StatusOutputSchema = z.object({
-    message: z.string(),
+    message: z.string().optional(),
     emoji: z.string().optional(),
     activeUntil: z.string().optional().describe('ISO 8601 end. Omitted when it has no end.'),
     pauseNotifications: z.boolean().describe('Comms notifications held back.'),
@@ -41,7 +41,7 @@ async function fetchUserStatus(client: TodoistApi): Promise<UserStatus | null> {
 function toStatusOutput(status: UserStatus): StatusOutput {
     const activeUntil = status.activeUntil ? new Date(status.activeUntil).toISOString() : undefined
     return {
-        message: status.message,
+        ...(status.message ? { message: status.message } : {}),
         ...(status.emoji ? { emoji: status.emoji } : {}),
         ...(activeUntil ? { activeUntil } : {}),
         pauseNotifications: Boolean(status.effects?.pauseNotifications),
@@ -61,7 +61,8 @@ function buildUserStatusResult(
     }
 
     const output = toStatusOutput(status)
-    const lines = [`${heading}: ${output.emoji ? `${output.emoji} ` : ''}${output.message}`]
+    // A status has a message, an emoji or both.
+    const lines = [`${heading}: ${[output.emoji, output.message].filter(Boolean).join(' ')}`]
     lines.push(output.activeUntil ? `Until: ${output.activeUntil}` : 'Until: no end')
     const effects = [
         output.pauseNotifications ? 'Comms notifications paused' : undefined,

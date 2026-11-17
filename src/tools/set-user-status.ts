@@ -19,7 +19,7 @@ const ArgsSchema = {
         .min(1)
         .max(MAX_MESSAGE_LENGTH)
         .optional()
-        .describe('Required unless clear is true.'),
+        .describe('Omit for an emoji-only status.'),
     emoji: z.string().trim().min(1).optional().describe('A Unicode emoji, such as 🏝️.'),
     activeUntil: z
         .string()
@@ -125,12 +125,14 @@ function buildStatus(args: SetUserStatusArgs, now: Date): UserStatusArgs | null 
         return null
     }
 
-    if (!message) {
-        throw new Error('message is required to set a status. Pass clear: true to remove it.')
+    if (!message && !emoji) {
+        throw new Error(
+            'message or emoji is required to set a status. Pass clear: true to remove it.',
+        )
     }
 
     return {
-        message,
+        message: message ?? null,
         emoji: emoji ?? null,
         activeUntil: activeUntil !== undefined ? parseActiveUntil(activeUntil, now) : null,
         effects:
@@ -153,7 +155,8 @@ function sameStatus(held: UserStatus, sent: UserStatusArgs): boolean {
     const heldUntil = held.activeUntil ? new Date(held.activeUntil).getTime() : null
     const sentUntil = sent.activeUntil ? new Date(sent.activeUntil).getTime() : null
     return (
-        held.message === sent.message &&
+        // An emoji-only status may be held with its message null or left out.
+        (held.message ?? null) === (sent.message ?? null) &&
         withoutVariationSelectors(held.emoji) === withoutVariationSelectors(sent.emoji) &&
         heldUntil === sentUntil &&
         Boolean(held.effects?.pauseNotifications) === Boolean(sent.effects?.pauseNotifications) &&
@@ -164,7 +167,7 @@ function sameStatus(held: UserStatus, sent: UserStatusArgs): boolean {
 const setUserStatus = {
     name: ToolNames.SET_USER_STATUS,
     description:
-        "Set or clear the user's status, shown next to their name in Todoist and Comms. Replaces the whole status: an omitted emoji, end or effect is removed, not kept. Use clear to remove the status.",
+        "Set or clear the user's status, shown next to their name in Todoist and Comms. It needs a message, an emoji or both. Replaces the whole status: any field omitted is removed, not kept. Use clear to remove the status.",
     parameters: ArgsSchema,
     outputSchema: UserStatusOutputSchema,
     annotations: {
