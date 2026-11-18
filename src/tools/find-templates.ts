@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { ApiLimits } from '../utils/constants.js'
 import { TemplateOriginFields } from '../utils/output-schemas.js'
-import { executeWithRetry } from '../utils/retry.js'
+import { formatNextSteps } from '../utils/response-builders.js'
 import { ToolNames } from '../utils/tool-names.js'
 
 const TEMPLATE_SOURCES = ['all', 'todoist', 'user', 'workspace'] as const
@@ -50,7 +50,7 @@ const OutputSchema = {
 const findTemplates = {
     name: ToolNames.FIND_TEMPLATES,
     description:
-        "Search the Todoist template gallery and the user's personal and workspace templates, to find a template's ID for add-projects, import-project-template, fetch-object or update-template.",
+        "Search the Todoist gallery's project templates and the user's personal and workspace ones, to find a template's ID for add-projects, import-project-template, fetch-object or update-template.",
     parameters: ArgsSchema,
     outputSchema: OutputSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -58,17 +58,15 @@ const findTemplates = {
         { query, source = 'all', locale, limit = ApiLimits.TEMPLATES_DEFAULT, cursor },
         client,
     ) {
-        const { results, nextCursor } = await executeWithRetry(() =>
-            client.getTemplates({
-                query,
-                templateSource: source,
-                // Setup templates are out of scope: they configure a whole account.
-                templateType: 'project',
-                locale,
-                cursor,
-                limit,
-            }),
-        )
+        const { results, nextCursor } = await client.getTemplates({
+            query,
+            templateSource: source,
+            // Setup templates are out of scope: they configure a whole account.
+            templateType: 'project',
+            locale,
+            cursor,
+            limit,
+        })
 
         return {
             textContent: generateTextContent({ templates: results, query, nextCursor }),
@@ -104,9 +102,7 @@ function generateTextContent({
         (template) =>
             `- ${template.name} (id=${template.id}, ${describeSource(template)}): ${template.shortDescription}`,
     )
-    const more = nextCursor
-        ? `\nMore results: call find-templates again with cursor "${nextCursor}".`
-        : ''
+    const more = nextCursor ? `\n${formatNextSteps([], nextCursor)}` : ''
 
     return `Found ${templates.length} template${templates.length === 1 ? '' : 's'}${matching}:\n${lines.join('\n')}${more}`
 }

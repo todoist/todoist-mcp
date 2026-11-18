@@ -102,7 +102,7 @@ describe(`${FIND_TEMPLATES} tool`, () => {
         expect(result.textContent).toBe(
             'Found 1 template:\n' +
                 '- Mine (id=UT_1, personal): Plan a launch from start to finish\n' +
-                'More results: call find-templates again with cursor "next-page".',
+                "Possible suggested next step:\n- Pass cursor 'next-page' to fetch more results.",
         )
     })
 
