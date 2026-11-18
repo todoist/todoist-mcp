@@ -1157,19 +1157,11 @@ describe(`${ADD_PROJECTS} tool`, () => {
     })
 
     describe('creating from a template', () => {
-        const ENGINEERING = {
+        const ENGINEERING = createMockWorkspace({
             id: '111',
             name: 'Engineering',
-            plan: 'BUSINESS',
             role: 'ADMIN',
-            inviteCode: 'abc123',
-            isLinkSharingEnabled: true,
-            isGuestAllowed: true,
-            limits: { current: null, next: null },
-            createdAt: new Date('2024-01-15T10:00:00Z'),
-            creatorId: 'user-456',
-            properties: {},
-        } as Workspace
+        })
 
         beforeEach(() => {
             workspaceResolver.clearCache()
@@ -1297,6 +1289,36 @@ describe(`${ADD_PROJECTS} tool`, () => {
             expect(result.structuredContent.successCount).toBe(2)
         })
 
+        // A template ID that can't be read fails before the limit gate, so it doesn't
+        // hold a slot that a later item in the batch needs.
+        it('does not count an unreadable template ID against the limit', async () => {
+            mockPersonalProjectCapacity(mockTodoistApi, { maxProjects: 5, activeCount: 4 })
+
+            const result = await addProjects.execute(
+                {
+                    projects: [
+                        {
+                            templateId:
+                                'https://app.todoist.com/app/project/inbox-6Jf8VQXxpwv56VQ7',
+                        },
+                        { templateId: 'product-launch' },
+                    ],
+                },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addProjectFromTemplateId).toHaveBeenCalledTimes(1)
+            expect(mockTodoistApi.addProjectFromTemplateId).toHaveBeenCalledWith(
+                expect.objectContaining({ templateId: 'product-launch' }),
+            )
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'https://app.todoist.com/app/project/inbox-6Jf8VQXxpwv56VQ7',
+                    error: expect.stringContaining('is not a Todoist template URL'),
+                },
+            ])
+        })
+
         it('counts template projects against the personal project limit', async () => {
             mockPersonalProjectCapacity(mockTodoistApi, { maxProjects: 5, activeCount: 5 })
 
@@ -1407,7 +1429,7 @@ describe(`${ADD_PROJECTS} tool`, () => {
 
             expect(mockTodoistApi.addProject).not.toHaveBeenCalled()
             expect(result.structuredContent.failures).toEqual([
-                { item: 'Inbox zero', error: expect.stringContaining('locale') },
+                { item: 'Inbox zero', error: 'locale only applies with templateId.' },
             ])
         })
 
