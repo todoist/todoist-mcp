@@ -209,7 +209,7 @@ const addProjects = {
                         : await resolveWorkspaceId(workspace)
                     const createProject = () =>
                         addProjectFromTemplate(client, {
-                            templateId: extractTemplateId(templateId),
+                            templateId,
                             name,
                             locale,
                             workspaceId,
@@ -281,7 +281,10 @@ type TemplateProject = Pick<ProjectInput, 'name' | 'workspace' | 'folderId' | 'l
     templateId: string
 }
 
-/** Checks a project from a template takes only what POST /projects/from_template accepts. */
+/**
+ * Checks a project from a template takes only what POST /projects/from_template accepts,
+ * and reads its template ID.
+ */
 function toTemplateProject(project: ProjectInput): TemplateProject {
     const given = NON_TEMPLATE_FIELDS.filter((field) => project[field] !== undefined)
     if (given.length > 0) {
@@ -294,7 +297,9 @@ function toTemplateProject(project: ProjectInput): TemplateProject {
     if (!templateId) {
         throw new Error('A project from a template needs its templateId.')
     }
-    return { templateId, name, workspace, folderId, locale }
+    // Read here, before the limit gate, so an unreadable ID never holds a slot
+    // another item in the batch needs.
+    return { templateId: extractTemplateId(templateId), name, workspace, folderId, locale }
 }
 
 /** Checks a project without a template has a name and nothing that needs one. */
