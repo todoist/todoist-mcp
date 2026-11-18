@@ -424,7 +424,9 @@ const SCENARIOS: Scenario[] = [
                   ? `projectId is ${JSON.stringify(input.projectId)}, so this doesn't save the user's project`
                   : input.name !== 'Onboarding'
                     ? `name is ${JSON.stringify(input.name)}, not the "Onboarding" the user asked for`
-                    : null,
+                    : typeof input.description !== 'string' || input.description.trim() === ''
+                      ? 'no description, which a save needs, so the call would fail'
+                      : null,
         guards: 'add-template from a project: saving in one call when the user asked for no changes',
     },
     {
