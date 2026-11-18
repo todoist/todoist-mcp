@@ -13,9 +13,39 @@ import { updateTemplate } from './update-template.js'
 const mockTodoistApi = {
     updateTemplate: vi.fn(),
     getWorkspaces: vi.fn(),
+    getTemplateContent: vi.fn(),
 } as unknown as Mocked<TodoistApi>
 
 const { UPDATE_TEMPLATE } = ToolNames
+
+// Content as the SDK returns it: numeric priorities, complete dates.
+function sdkContent(tasks: Array<{ id: string; content: string; priority?: number }>) {
+    return {
+        templateType: 'project' as const,
+        workspaceId: null,
+        content: {
+            projects: [{ viewStyle: 'list' as const }],
+            sections: [],
+            tasks,
+            comments: [],
+            projectComments: [],
+            projectViewOptionsDefaults: [],
+        },
+    }
+}
+
+// The same content as a tool takes it: p1–p4 priorities.
+const EDITED = {
+    projects: [{ viewStyle: 'board' as const }],
+    sections: [],
+    tasks: [
+        { id: 't1', content: 'Plan', priority: 'p1' as const },
+        { id: 't2', content: 'Ship' },
+    ],
+    comments: [],
+    projectComments: [],
+    projectViewOptionsDefaults: [],
+}
 
 describe(`${UPDATE_TEMPLATE} tool`, () => {
     beforeEach(() => {
@@ -103,6 +133,76 @@ describe(`${UPDATE_TEMPLATE} tool`, () => {
             expect.objectContaining({ sharedWithWorkspaceMembers: false }),
         )
         expect(result.textContent).toContain('not shared with its members')
+    })
+
+    describe('content', () => {
+        it('sends the content with SDK priorities and reports what changed', async () => {
+            mockTodoistApi.getTemplateContent
+                .mockResolvedValueOnce(sdkContent([{ id: 'a', content: 'Plan', priority: 1 }]))
+                .mockResolvedValueOnce({
+                    ...sdkContent([
+                        { id: 'b', content: 'Plan', priority: 4 },
+                        { id: 'c', content: 'Ship', priority: 1 },
+                    ]),
+                    content: {
+                        ...sdkContent([]).content,
+                        projects: [{ viewStyle: 'board' as const }],
+                        tasks: [
+                            { id: 'b', content: 'Plan', priority: 4 },
+                            { id: 'c', content: 'Ship', priority: 1 },
+                        ],
+                    },
+                })
+
+            const result = await updateTemplate.execute(
+                { templateId: 'UT_28Ex1', content: EDITED },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.updateTemplate).toHaveBeenCalledWith(
+                'UT_28Ex1',
+                expect.objectContaining({
+                    content: expect.objectContaining({
+                        projects: [{ viewStyle: 'board' }],
+                        tasks: [
+                            expect.objectContaining({ id: 't1', content: 'Plan', priority: 4 }),
+                            expect.objectContaining({ id: 't2', content: 'Ship' }),
+                        ],
+                    }),
+                }),
+            )
+            expect(result.textContent).toContain(
+                'Content: layout list → board, sections 0 → 0, tasks 1 → 2, assigned tasks 0 → 0, comments 0 → 0.',
+            )
+        })
+
+        it('refuses content together with a project, without reading or saving', async () => {
+            await expect(
+                updateTemplate.execute(
+                    { templateId: 'UT_28Ex1', content: EDITED, projectId: 'project-1' },
+                    mockTodoistApi,
+                ),
+            ).rejects.toThrow('Provide either `content` or `projectId`, not both')
+            expect(mockTodoistApi.getTemplateContent).not.toHaveBeenCalled()
+            expect(mockTodoistApi.updateTemplate).not.toHaveBeenCalled()
+        })
+
+        it('says when the saved content could not be read back, rather than guessing', async () => {
+            mockTodoistApi.getTemplateContent
+                .mockResolvedValueOnce(sdkContent([{ id: 'a', content: 'Plan', priority: 1 }]))
+                .mockRejectedValueOnce(new Error('Network down'))
+
+            const result = await updateTemplate.execute(
+                { templateId: 'UT_28Ex1', content: EDITED },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.updateTemplate).toHaveBeenCalledTimes(1)
+            expect(result.textContent).toContain(
+                'The content was saved, but could not be read back to compare.',
+            )
+            expect(result.textContent).not.toContain('Content: layout')
+        })
     })
 
     it('refuses to edit a gallery template', async () => {

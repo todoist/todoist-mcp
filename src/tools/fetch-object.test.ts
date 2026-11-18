@@ -759,7 +759,13 @@ describe(`${FETCH_OBJECT} tool`, () => {
                             sectionId: 's1',
                             parentId: null,
                             priority: 4,
-                            due: { string: 'every monday', lang: 'en' },
+                            due: {
+                                date: '2026-11-23T09:00:00',
+                                string: 'every monday at 9am',
+                                lang: 'en',
+                                isRecurring: true,
+                                timezone: 'Europe/Rome',
+                            },
                             responsibleUid: '42',
                         },
                         { id: 't2', content: 'Details', parentId: 't1', priority: 1 },
@@ -833,7 +839,13 @@ describe(`${FETCH_OBJECT} tool`, () => {
                     content: 'Plan',
                     sectionId: 's1',
                     priority: 'p1',
-                    due: { string: 'every monday', lang: 'en' },
+                    due: {
+                        date: '2026-11-23T09:00:00',
+                        string: 'every monday at 9am',
+                        lang: 'en',
+                        isRecurring: true,
+                        timezone: 'Europe/Rome',
+                    },
                     responsibleUid: '42',
                 },
                 { id: 't2', content: 'Details', parentId: 't1', priority: 'p4' },
@@ -848,7 +860,7 @@ describe(`${FETCH_OBJECT} tool`, () => {
             )
 
             expect(result.textContent).toBe(
-                'Found template: Launch plan • id=UT_28Ex1 • board layout, 1 section, 2 tasks.\n- Plan [Week 1] (due every monday)\n    - Details',
+                'Found template: Launch plan • id=UT_28Ex1 • board layout, 1 section, 2 tasks.\n- Plan [Week 1] (due every monday at 9am)\n    - Details',
             )
         })
     })
