@@ -2,18 +2,18 @@ import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { TEST_IDS } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
-import { exportProjectTemplate } from './export-project-template.js'
+import { exportProject } from './export-project.js'
 
 const mockTodoistApi = {
     exportProjectAsCsv: vi.fn(),
     exportTemplateAsUrl: vi.fn(),
 } as unknown as Mocked<TodoistApi>
 
-const { EXPORT_PROJECT_TEMPLATE } = ToolNames
+const { EXPORT_PROJECT } = ToolNames
 
 const CSV_HEADER = 'TYPE,CONTENT,DESCRIPTION,PRIORITY'
 
-describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
+describe(`${EXPORT_PROJECT} tool`, () => {
     beforeEach(() => {
         vi.clearAllMocks()
     })
@@ -23,7 +23,7 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
             const csv = `${CSV_HEADER}\ntask,Buy milk,,4`
             mockTodoistApi.exportProjectAsCsv.mockResolvedValue(csv)
 
-            const result = await exportProjectTemplate.execute(
+            const result = await exportProject.execute(
                 { projectId: TEST_IDS.PROJECT_TEST, format: 'file' },
                 mockTodoistApi,
             )
@@ -45,7 +45,7 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
             const rows = Array.from({ length: 12 }, (_, index) => `task,Task ${index + 1},,4`)
             mockTodoistApi.exportProjectAsCsv.mockResolvedValue([CSV_HEADER, ...rows].join('\n'))
 
-            const result = await exportProjectTemplate.execute(
+            const result = await exportProject.execute(
                 { projectId: TEST_IDS.PROJECT_TEST, format: 'file' },
                 mockTodoistApi,
             )
@@ -61,10 +61,8 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
             mockTodoistApi.exportProjectAsCsv.mockResolvedValue(`${CSV_HEADER}\ntask,Buy milk,,4`)
 
             // scripts/run-tool.ts calls execute() without applying schema defaults.
-            const result = await exportProjectTemplate.execute(
-                { projectId: TEST_IDS.PROJECT_TEST } as Parameters<
-                    typeof exportProjectTemplate.execute
-                >[0],
+            const result = await exportProject.execute(
+                { projectId: TEST_IDS.PROJECT_TEST } as Parameters<typeof exportProject.execute>[0],
                 mockTodoistApi,
             )
 
@@ -77,7 +75,7 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
                 `${CSV_HEADER}\n\ntask,Buy milk,,4\n\n`,
             )
 
-            const result = await exportProjectTemplate.execute(
+            const result = await exportProject.execute(
                 { projectId: TEST_IDS.PROJECT_TEST, format: 'file' },
                 mockTodoistApi,
             )
@@ -93,7 +91,7 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
                 fileUrl: 'https://todoist.com/templates/export/abc123.csv',
             })
 
-            const result = await exportProjectTemplate.execute(
+            const result = await exportProject.execute(
                 { projectId: TEST_IDS.PROJECT_TEST, format: 'url', useRelativeDates: true },
                 mockTodoistApi,
             )
@@ -108,7 +106,9 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
                 fileName: 'My Project.csv',
                 fileUrl: 'https://todoist.com/templates/export/abc123.csv',
             })
-            expect(result.textContent).toContain('https://todoist.com/templates/export/abc123.csv')
+            expect(result.textContent).toBe(
+                `Exported project (id=${TEST_IDS.PROJECT_TEST}) as a public CSV link: My Project.csv\nhttps://todoist.com/templates/export/abc123.csv\nAnyone holding the link can open it, and it cannot be revoked.`,
+            )
         })
     })
 
@@ -118,10 +118,7 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
         )
 
         await expect(
-            exportProjectTemplate.execute(
-                { projectId: 'non-existent', format: 'file' },
-                mockTodoistApi,
-            ),
+            exportProject.execute({ projectId: 'non-existent', format: 'file' }, mockTodoistApi),
         ).rejects.toThrow('API Error: Project not found')
     })
 })
