@@ -539,7 +539,7 @@ describe(`${ADD_TEMPLATE} tool`, () => {
                 workspaceError: 'Forbidden',
             })
             expect(result.textContent).toBe(
-                'Created template "Launch plan" (id=UT_28Ex1) from the draft. It is in your personal templates. Moving it into the workspace or sharing it failed: Forbidden. Ask the user to move or share it in Todoist. Use add-projects with this templateId to start a new project from it.',
+                'Created template "Launch plan" (id=UT_28Ex1) from the draft. It is in your personal templates. Moving it into the workspace or sharing it failed: Forbidden. Retry with update-template. Use add-projects with this templateId to start a new project from it.',
             )
         })
     })
