@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { colorSchemaWithDefault } from '../utils/colors.js'
-import { executeWithRetry } from '../utils/retry.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { workspaceResolver } from '../utils/workspace-resolver.js'
 import { extractTemplateId, TEMPLATE_ID_PATTERN } from './import-project-template.js'
@@ -80,8 +79,7 @@ const updateTemplate = {
         }
 
         const workspaceId = workspace
-            ? (await executeWithRetry(() => workspaceResolver.resolveWorkspace(client, workspace)))
-                  .workspaceId
+            ? (await workspaceResolver.resolveWorkspace(client, workspace)).workspaceId
             : undefined
 
         const template = await client.updateTemplate(id, {

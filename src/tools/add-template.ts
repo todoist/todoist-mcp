@@ -315,7 +315,7 @@ function generateTextContent({
         ? ` It is in the workspace's templates (workspace id=${workspaceId}), ${sharing}.`
         : ' It is in your personal templates.'
     const failed = workspaceError
-        ? ` Moving it into the workspace or sharing it failed: ${workspaceError}. Ask the user to move or share it in Todoist.`
+        ? ` Moving it into the workspace or sharing it failed: ${workspaceError}. Retry with update-template.`
         : ''
 
     return `${created}${where}${failed} Use add-projects with this templateId to start a new project from it.`
