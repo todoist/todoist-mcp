@@ -25,7 +25,7 @@ import { analyzeProjectHealth } from './tools/analyze-project-health.js'
 import { completeTasks } from './tools/complete-tasks.js'
 // General tools
 import { deleteObject } from './tools/delete-object.js'
-import { exportProjectTemplate } from './tools/export-project-template.js'
+import { exportProject } from './tools/export-project.js'
 import { fetchObject } from './tools/fetch-object.js'
 import { fetch } from './tools/fetch.js'
 // Activity and audit tools
@@ -125,7 +125,7 @@ export {
     findProjectCollaborators,
     manageAssignments,
     // Template tools
-    exportProjectTemplate,
+    exportProject,
     importProjectTemplate,
     addTemplate,
     findTemplates,

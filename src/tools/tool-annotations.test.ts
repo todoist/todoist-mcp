@@ -307,8 +307,8 @@ describeToolAnnotations({
             destructiveHint: false,
             idempotentHint: true,
         },
-        [ToolNames.EXPORT_PROJECT_TEMPLATE]: {
-            title: 'Todoist: Export Project Template',
+        [ToolNames.EXPORT_PROJECT]: {
+            title: 'Todoist: Export Project',
             readOnlyHint: false,
             destructiveHint: false,
             idempotentHint: true,

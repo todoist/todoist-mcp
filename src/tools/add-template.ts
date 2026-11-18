@@ -28,7 +28,7 @@ const ArgsSchema = {
         .min(1)
         .optional()
         .describe(
-            'Start from this CSV, e.g. from export-project-template or a file the user shared. Not with projectId.',
+            'Start from this CSV, e.g. from export-project or a file the user shared. Not with projectId.',
         ),
     preview: z
         .boolean()
