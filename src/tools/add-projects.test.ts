@@ -1401,6 +1401,29 @@ describe(`${ADD_PROJECTS} tool`, () => {
             ])
         })
 
+        it('fails closed for template projects when the limit cannot be read', async () => {
+            mockTodoistApi.getPersonalProjectCapacity.mockRejectedValue(
+                new TodoistRequestError(
+                    'The plan limits returned by the API do not include maxProjects',
+                ),
+            )
+            const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+            const result = await addProjects.execute(
+                { projects: [{ templateId: 'product-launch' }] },
+                mockTodoistApi,
+            )
+
+            consoleErrorSpy.mockRestore()
+            expect(mockTodoistApi.addProjectFromTemplateId).not.toHaveBeenCalled()
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'product-launch',
+                    error: 'Could not verify your personal project limit. This project was not created. Retry later.',
+                },
+            ])
+        })
+
         it.each([
             ['parentId', { parentId: 'p1' }],
             ['isFavorite', { isFavorite: true }],
