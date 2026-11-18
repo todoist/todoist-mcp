@@ -12,7 +12,7 @@ const ArgsSchema = {
         .enum(TEMPLATE_FORMATS)
         .default('file')
         .describe(
-            'How to return the CSV. "file" returns the CSV content, which can be passed straight back to import-project-template. "url" uploads it and returns a download link instead, which does not return the whole file for large projects. The link is public, permanent and cannot be revoked: anyone holding it can open it, so only use it when the user asks for a link.',
+            'How to return the CSV. "file" returns the CSV content, which can be passed straight back to import-project-template. "url" uploads it and returns a download link instead, so the CSV of a large project is not returned in full. The link is public, permanent and cannot be revoked: anyone holding it can open it, so only use it when the user asks for a link.',
         ),
     useRelativeDates: z
         .boolean()
