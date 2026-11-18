@@ -1,7 +1,11 @@
-import type { Template, TodoistApi, Workspace } from '@todoist/sdk'
+import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { z } from 'zod'
-import { getAdvertisedPattern } from '../utils/test-helpers.js'
+import {
+    createMockTemplate,
+    createMockWorkspace,
+    getAdvertisedPattern,
+} from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { workspaceResolver } from '../utils/workspace-resolver.js'
 import { updateTemplate } from './update-template.js'
@@ -13,37 +17,11 @@ const mockTodoistApi = {
 
 const { UPDATE_TEMPLATE } = ToolNames
 
-function createTemplate(overrides: Partial<Template> = {}): Template {
-    return {
-        id: 'UT_28Ex1',
-        name: 'Launch plan',
-        templateType: 'project',
-        templateSource: 'user',
-        shortDescription: '',
-        longDescription: '',
-        instructions: null,
-        thumbnailImage: null,
-        thumbnailImageDark: null,
-        coverImage: null,
-        previewImage: null,
-        templateColor: 'blue',
-        backgroundColor: null,
-        backgroundColorDark: null,
-        creator: null,
-        seo: null,
-        moreResources: [],
-        categoryIds: [],
-        workspaceId: null,
-        sharedWithWorkspaceMembers: false,
-        ...overrides,
-    }
-}
-
 describe(`${UPDATE_TEMPLATE} tool`, () => {
     beforeEach(() => {
         vi.clearAllMocks()
         workspaceResolver.clearCache()
-        mockTodoistApi.updateTemplate.mockResolvedValue(createTemplate({ name: 'Renamed' }))
+        mockTodoistApi.updateTemplate.mockResolvedValue(createMockTemplate({ name: 'Renamed' }))
     })
 
     it('sends only the fields to change', async () => {
@@ -72,10 +50,10 @@ describe(`${UPDATE_TEMPLATE} tool`, () => {
 
     it('resolves the workspace by name and reports sharing', async () => {
         mockTodoistApi.getWorkspaces.mockResolvedValue([
-            { id: '111', name: 'Engineering' } as Workspace,
+            createMockWorkspace({ id: '111', name: 'Engineering' }),
         ])
         mockTodoistApi.updateTemplate.mockResolvedValue(
-            createTemplate({ workspaceId: '111', sharedWithWorkspaceMembers: true }),
+            createMockTemplate({ workspaceId: '111', sharedWithWorkspaceMembers: true }),
         )
 
         const result = await updateTemplate.execute(
@@ -93,6 +71,9 @@ describe(`${UPDATE_TEMPLATE} tool`, () => {
             expect.objectContaining({ workspaceId: '111', sharedWithWorkspaceMembers: true }),
         )
         expect(result.textContent).toContain('in workspace (id=111) and shared with its members.')
+        expect(result.structuredContent).toEqual(
+            expect.objectContaining({ workspaceId: '111', sharedWithWorkspaceMembers: true }),
+        )
     })
 
     it("replaces the template's content from a project", async () => {
@@ -109,7 +90,7 @@ describe(`${UPDATE_TEMPLATE} tool`, () => {
 
     it('stops sharing when that is the only change', async () => {
         mockTodoistApi.updateTemplate.mockResolvedValue(
-            createTemplate({ workspaceId: '111', sharedWithWorkspaceMembers: false }),
+            createMockTemplate({ workspaceId: '111', sharedWithWorkspaceMembers: false }),
         )
 
         const result = await updateTemplate.execute(
@@ -128,6 +109,18 @@ describe(`${UPDATE_TEMPLATE} tool`, () => {
         await expect(
             updateTemplate.execute({ templateId: 'product-launch', name: 'Mine' }, mockTodoistApi),
         ).rejects.toThrow('is not a saved template ID')
+        expect(mockTodoistApi.updateTemplate).not.toHaveBeenCalled()
+    })
+
+    it('says an unrecognized color was ignored when it was the only change', async () => {
+        const args = z.object(updateTemplate.parameters).parse({
+            templateId: 'UT_28Ex1',
+            color: 'not-a-color',
+        })
+
+        await expect(updateTemplate.execute(args, mockTodoistApi)).rejects.toThrow(
+            'An unrecognized color is ignored',
+        )
         expect(mockTodoistApi.updateTemplate).not.toHaveBeenCalled()
     })
 
