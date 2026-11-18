@@ -56,8 +56,11 @@ describe(`${IMPORT_INTO_PROJECT} tool`, () => {
                 templateId: 'product-launch',
                 locale: undefined,
             })
+            expect(mockTodoistApi.importCsvIntoProject).not.toHaveBeenCalled()
             expect(result.structuredContent?.totalCount).toBe(3)
-            expect(result.textContent).toContain('1 section, 2 tasks')
+            expect(result.textContent).toBe(
+                `Imported template into project (id=${TEST_IDS.PROJECT_TEST}): 1 section, 2 tasks.`,
+            )
             expect(result.structuredContent?.sections).toEqual([
                 expect.objectContaining({ id: TEST_IDS.SECTION_1, name: 'Websites' }),
             ])
@@ -168,6 +171,7 @@ describe(`${IMPORT_INTO_PROJECT} tool`, () => {
                 file: expect.any(Blob),
                 fileName: 'template.csv',
             })
+            expect(mockTodoistApi.importTemplateFromId).not.toHaveBeenCalled()
             const file = mockTodoistApi.importCsvIntoProject.mock.calls[0]?.[0].file as Blob
             expect(await file.text()).toBe('TYPE,CONTENT\ntask,Buy milk')
             expect(result.textContent).toBe(

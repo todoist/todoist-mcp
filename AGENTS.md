@@ -74,7 +74,7 @@ Directory reviews (Gemini Connected Apps) read the advertised input schemas, as 
 
 - Give every input array a `.max()`, from `BatchLimits` or `ApiLimits` in `src/utils/constants.ts`. An uncapped list lets one runaway call write or notify without limit.
 - Don't stack two string checks that each carry a regex, such as `.date().regex()`: the JSON Schema becomes an `allOf` of untyped branches. Use one check (`z.iso.date()`).
-- A model-supplied URL or reference that the server acts on names its allowed hosts in a `.regex()`, so the restriction is in the schema and not only in the runtime check (see `view-attachment`, `import-project-template`).
+- A model-supplied URL or reference that the server acts on names its allowed hosts in a `.regex()`, so the restriction is in the schema and not only in the runtime check (see `view-attachment`, and `TEMPLATE_ID_PATTERN` in `src/utils/template-ids.ts`).
 
 `src/tools/input-schema-contract.test.ts` enforces the first two across every registered tool.
 
