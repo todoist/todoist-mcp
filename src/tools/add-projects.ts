@@ -28,13 +28,27 @@ import { executeCreateWithRetry, executeWithRetry, mayHaveCreated } from '../uti
 import { settleSyncCommands } from '../utils/sync-commands.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { workspaceResolver } from '../utils/workspace-resolver.js'
+import { extractTemplateId, TEMPLATE_ID_PATTERN } from './import-project-template.js'
 
 const { FIND_FOLDERS, FIND_PROJECTS } = ToolNames
 
 const CREATED_PROJECT: CreatedItem = { noun: 'project', findWith: FIND_PROJECTS }
 
 const ProjectSchema = z.object({
-    name: z.string().min(1).describe('The name of the project.'),
+    name: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "The name of the project. Required, except with templateId, where it defaults to the template's name.",
+        ),
+    templateId: z
+        .string()
+        .regex(TEMPLATE_ID_PATTERN)
+        .optional()
+        .describe(
+            'Create the project from a template, with its sections, tasks and comments: a gallery slug ("product-launch"), a saved template ID ("UT_28Ex..."), or a Todoist template URL. With a template, only name, workspace, folderId and locale apply. To add a template to an existing project, use import-project-template.',
+        ),
     parentId: z
         .string()
         .optional()
@@ -72,7 +86,25 @@ const ProjectSchema = z.object({
         .describe(
             `Create it in this workspace folder (see ${FIND_FOLDERS}). The folder sets the workspace, so workspace can be omitted.`,
         ),
+    locale: z
+        .string()
+        .optional()
+        .describe(
+            'With templateId: the language of gallery template content, e.g. "de". Defaults to "en".',
+        ),
 })
+
+type ProjectInput = z.infer<typeof ProjectSchema>
+
+// POST /projects/from_template takes none of these.
+const NON_TEMPLATE_FIELDS = [
+    'parentId',
+    'isFavorite',
+    'viewStyle',
+    'description',
+    'color',
+    'icon',
+] as const
 
 const ArgsSchema = {
     projects: z
@@ -95,7 +127,7 @@ const OutputSchema = {
 
 const addProjects = {
     name: ToolNames.ADD_PROJECTS,
-    description: 'Add one or more new projects.',
+    description: 'Add one or more new projects, empty or from a template.',
     parameters: ArgsSchema,
     outputSchema: OutputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
@@ -131,14 +163,29 @@ const addProjects = {
             return lookup
         }
 
-        // Projects headed for a folder are created together through Sync; the rest
-        // each go through the REST create.
-        const inFolders = projects.flatMap(({ folderId, ...project }, index) =>
-            folderId ? [{ index, project, folderId }] : [],
-        )
-        const elsewhere = projects.flatMap(({ folderId, ...project }, index) =>
-            folderId ? [] : [{ index, project }],
-        )
+        // Projects from a template each go through POST /projects/from_template, which
+        // takes a folder itself. Of the rest, projects headed for a folder are created
+        // together through Sync, and the others each go through the REST create.
+        const invalid: IndexedOutcome[] = []
+        const fromTemplates: Array<{ index: number; project: TemplateProject }> = []
+        const inFolders: Array<{ index: number; project: EmptyProject; folderId: string }> = []
+        const elsewhere: Array<{ index: number; project: EmptyProject }> = []
+        for (const [index, project] of projects.entries()) {
+            try {
+                if (project.templateId) {
+                    fromTemplates.push({ index, project: toTemplateProject(project) })
+                    continue
+                }
+                const { folderId, ...emptyProject } = toEmptyProject(project)
+                if (folderId) {
+                    inFolders.push({ index, project: emptyProject, folderId })
+                } else {
+                    elsewhere.push({ index, project: emptyProject })
+                }
+            } catch (reason) {
+                invalid.push({ index, outcome: { status: 'rejected', reason } })
+            }
+        }
 
         // Each project is created independently: a failure on one (for example, the API
         // rejecting it with a 403 permission error) must not discard the projects that
@@ -146,7 +193,34 @@ const addProjects = {
         // Each create goes through executeCreateWithRetry, which retries a 503 but not a
         // 502/504, since the item may already exist and the API cannot dedupe a repeat.
         const indexedOutcomes = await Promise.all([
+            invalid,
             createProjectsInFolders(client, inFolders, { lookupFolder, resolveWorkspaceId }),
+            ...fromTemplates.map(async ({ project, index }) => {
+                const outcome = await settle(async () => {
+                    const { workspace, templateId, folderId, locale, name } = project
+                    const workspaceId = folderId
+                        ? (
+                              await checkFolderWorkspace(
+                                  await lookupFolder(folderId),
+                                  workspace,
+                                  resolveWorkspaceId,
+                              )
+                          ).workspaceId
+                        : await resolveWorkspaceId(workspace)
+                    const createProject = () =>
+                        addProjectFromTemplate(client, {
+                            templateId: extractTemplateId(templateId),
+                            name,
+                            locale,
+                            workspaceId,
+                            folderId,
+                        })
+                    return workspaceId
+                        ? await createProject()
+                        : await admitPersonalProject(createProject)
+                })
+                return [{ index, outcome }]
+            }),
             ...elsewhere.map(async ({ project: { workspace, ...rest }, index }) => {
                 const outcome = await settle(async () => {
                     const workspaceId = await resolveWorkspaceId(workspace)
@@ -174,7 +248,7 @@ const addProjects = {
         const { succeeded, failures } = partitionSettled(
             projects,
             settled,
-            (project) => project.name,
+            (project, index) => project.name ?? project.templateId ?? `Project ${index + 1}`,
         )
         const newProjects = succeeded.map(({ value }) => value)
 
@@ -200,6 +274,76 @@ const addProjects = {
 type CreatedProject = PersonalProject | WorkspaceProject
 type IndexedOutcome = { index: number; outcome: PromiseSettledResult<CreatedProject> }
 type FolderProject = Omit<ProjectAddArgs, 'workspaceId' | 'folderId'> & { workspace?: string }
+type EmptyProject = Omit<ProjectInput, 'name' | 'templateId' | 'locale' | 'folderId'> & {
+    name: string
+}
+type TemplateProject = Pick<ProjectInput, 'name' | 'workspace' | 'folderId' | 'locale'> & {
+    templateId: string
+}
+
+/** Checks a project from a template takes only what POST /projects/from_template accepts. */
+function toTemplateProject(project: ProjectInput): TemplateProject {
+    const given = NON_TEMPLATE_FIELDS.filter((field) => project[field] !== undefined)
+    if (given.length > 0) {
+        throw new Error(
+            `A project created from a template takes only name, workspace, folderId and locale, not ${given.join(', ')}. ` +
+                'Create it from the template first, then change those with update-projects, or move it under a parent with project-move.',
+        )
+    }
+    const { templateId, name, workspace, folderId, locale } = project
+    if (!templateId) {
+        throw new Error('A project from a template needs its templateId.')
+    }
+    return { templateId, name, workspace, folderId, locale }
+}
+
+/** Checks a project without a template has a name and nothing that needs one. */
+function toEmptyProject(project: ProjectInput): EmptyProject & { folderId?: string } {
+    const { name, locale, templateId: _templateId, ...rest } = project
+    if (locale !== undefined) {
+        throw new Error('locale only applies with templateId.')
+    }
+    if (name === undefined) {
+        throw new Error('A project needs a name, unless it is created from a template.')
+    }
+    return { ...rest, name }
+}
+
+/** Checks a folder is in the workspace named alongside it, if one was. */
+async function checkFolderWorkspace(
+    folder: Folder,
+    workspace: string | undefined,
+    resolveWorkspaceId: (workspace: string) => Promise<string | undefined>,
+): Promise<Folder> {
+    if (workspace && (await resolveWorkspaceId(workspace)) !== folder.workspaceId) {
+        throw new Error(
+            `Folder "${folder.name}" (id=${folder.id}) is in workspace id=${folder.workspaceId}, not "${workspace}". Omit workspace to create the project in the folder's workspace.`,
+        )
+    }
+    return folder
+}
+
+async function addProjectFromTemplate(
+    client: TodoistApi,
+    args: Parameters<TodoistApi['addProjectFromTemplateId']>[0],
+): Promise<CreatedProject> {
+    const { projectId } = await executeCreateWithRetry(
+        () => client.addProjectFromTemplateId(args),
+        CREATED_PROJECT,
+    )
+    // The endpoint only returns the new ID. The project exists either way, so a failed
+    // read must say so, or a caller would retry and create it twice.
+    try {
+        return await executeWithRetry(() => client.getProject(projectId))
+    } catch (error) {
+        console.error(`${ToolNames.ADD_PROJECTS}: could not read back project ${projectId}`, error)
+        // The cause stays out of the message: an HTTP status in it would make the batch
+        // report this as that API error, and lose the "do not retry".
+        throw new Error(
+            `Created project id=${projectId} from the template, but could not read it back. Do not retry: the project exists.`,
+        )
+    }
+}
 
 async function settle<T>(run: () => Promise<T>): Promise<PromiseSettledResult<T>> {
     try {
@@ -236,15 +380,9 @@ async function createProjectsInFolders(
             index,
             project,
             tempId: randomUUID(),
-            folder: await settle(async () => {
-                const folder = await lookupFolder(folderId)
-                if (workspace && (await resolveWorkspaceId(workspace)) !== folder.workspaceId) {
-                    throw new Error(
-                        `Folder "${folder.name}" (id=${folder.id}) is in workspace id=${folder.workspaceId}, not "${workspace}". Omit workspace to create the project in the folder's workspace.`,
-                    )
-                }
-                return folder
-            }),
+            folder: await settle(async () =>
+                checkFolderWorkspace(await lookupFolder(folderId), workspace, resolveWorkspaceId),
+            ),
         })),
     )
 

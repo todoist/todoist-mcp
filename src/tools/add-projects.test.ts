@@ -25,10 +25,11 @@ import { addProjects } from './add-projects.js'
 // Mock the Todoist API
 const mockTodoistApi = {
     addProject: vi.fn(),
+    addProjectFromTemplateId: vi.fn(),
+    getProject: vi.fn(),
     getWorkspaces: vi.fn(),
     getPersonalProjectCapacity: vi.fn(),
     getFolder: vi.fn(),
-    getProject: vi.fn(),
     sync: vi.fn(),
 } as unknown as Mocked<TodoistApi>
 
@@ -1238,6 +1239,289 @@ describe(`${ADD_PROJECTS} tool`, () => {
             expect(result.structuredContent.failures.map((failure) => failure.item)).toEqual([
                 'Invalid 1',
                 'Invalid 2',
+            ])
+        })
+    })
+
+    describe('creating from a template', () => {
+        const ENGINEERING = {
+            id: '111',
+            name: 'Engineering',
+            plan: 'BUSINESS',
+            role: 'ADMIN',
+            inviteCode: 'abc123',
+            isLinkSharingEnabled: true,
+            isGuestAllowed: true,
+            limits: { current: null, next: null },
+            createdAt: new Date('2024-01-15T10:00:00Z'),
+            creatorId: 'user-456',
+            properties: {},
+        } as Workspace
+
+        beforeEach(() => {
+            workspaceResolver.clearCache()
+            mockTodoistApi.addProjectFromTemplateId.mockResolvedValue({
+                status: 'ok',
+                projectId: 'new-project',
+            })
+            mockTodoistApi.getProject.mockResolvedValue(
+                createMockProject({ id: 'new-project', name: 'Product Launch' }),
+            )
+        })
+
+        // templateId is model-supplied, so the schema narrows it to Todoist hosts, as
+        // import-project-template's does. Clients read the advertised pattern.
+        describe('templateId validation', () => {
+            const schema = z.object(addProjects.parameters)
+            const advertised = z.toJSONSchema(schema).properties?.projects
+            const pattern = new RegExp(
+                (advertised as { items: { properties: { templateId: { pattern: string } } } }).items
+                    .properties.templateId.pattern,
+            )
+
+            it.each([
+                'product-launch',
+                'UT_28ExampleTemplateId000001',
+                'https://app.todoist.com/app/templates/category/my-templates/UT_28Ex1/view',
+            ])('accepts %s', (templateId) => {
+                expect(schema.safeParse({ projects: [{ templateId }] }).success).toBe(true)
+                expect(pattern.test(templateId)).toBe(true)
+            })
+
+            it.each([
+                'https://attacker.example/templates/product-launch',
+                'https://todoist.com.attacker.example/templates/product-launch',
+                'http://todoist.com/templates/product-launch',
+            ])('rejects %s', (templateId) => {
+                expect(schema.safeParse({ projects: [{ templateId }] }).success).toBe(false)
+                expect(pattern.test(templateId)).toBe(false)
+            })
+        })
+
+        it('creates a personal project from a template ID and returns it read back', async () => {
+            const result = await addProjects.execute(
+                { projects: [{ templateId: 'product-launch' }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addProjectFromTemplateId).toHaveBeenCalledWith({
+                templateId: 'product-launch',
+                name: undefined,
+                locale: undefined,
+                workspaceId: undefined,
+                folderId: undefined,
+            })
+            expect(mockTodoistApi.addProject).not.toHaveBeenCalled()
+            expect(mockTodoistApi.getProject).toHaveBeenCalledWith('new-project')
+            expect(result.structuredContent).toMatchObject({
+                projects: [{ id: 'new-project', name: 'Product Launch' }],
+                failures: [],
+                successCount: 1,
+            })
+            expect(result.textContent).toContain('Product Launch (id=new-project)')
+        })
+
+        it('reduces a template URL to its ID', async () => {
+            await addProjects.execute(
+                {
+                    projects: [
+                        {
+                            templateId:
+                                'https://app.todoist.com/app/templates/category/my-templates/UT_28Ex1/view',
+                        },
+                    ],
+                },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addProjectFromTemplateId).toHaveBeenCalledWith(
+                expect.objectContaining({ templateId: 'UT_28Ex1' }),
+            )
+        })
+
+        it('resolves the workspace by name and passes the name, folder and locale through', async () => {
+            mockTodoistApi.getWorkspaces.mockResolvedValue([ENGINEERING])
+            mockTodoistApi.getFolder.mockResolvedValue(
+                createMockFolder({ id: 'folder-1', workspaceId: '111' }),
+            )
+
+            await addProjects.execute(
+                {
+                    projects: [
+                        {
+                            templateId: 'UT_28Ex1',
+                            name: 'Q3 launch',
+                            workspace: 'Engineering',
+                            folderId: 'folder-1',
+                            locale: 'de',
+                        },
+                    ],
+                },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addProjectFromTemplateId).toHaveBeenCalledWith({
+                templateId: 'UT_28Ex1',
+                name: 'Q3 launch',
+                locale: 'de',
+                workspaceId: '111',
+                folderId: 'folder-1',
+            })
+            expect(mockTodoistApi.getPersonalProjectCapacity).not.toHaveBeenCalled()
+        })
+
+        it('creates empty and template projects in the same batch', async () => {
+            mockTodoistApi.addProject.mockResolvedValue(
+                createMockProject({ id: 'empty-project', name: 'Inbox zero' }),
+            )
+
+            const result = await addProjects.execute(
+                { projects: [{ name: 'Inbox zero' }, { templateId: 'product-launch' }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addProject).toHaveBeenCalledWith({ name: 'Inbox zero' })
+            expect(result.structuredContent.successCount).toBe(2)
+        })
+
+        it('counts template projects against the personal project limit', async () => {
+            mockPersonalProjectCapacity(mockTodoistApi, { maxProjects: 5, activeCount: 5 })
+
+            const result = await addProjects.execute(
+                { projects: [{ templateId: 'product-launch' }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addProjectFromTemplateId).not.toHaveBeenCalled()
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'product-launch',
+                    error: expect.stringContaining('limit of 5 active personal projects'),
+                },
+            ])
+        })
+
+        it.each([
+            ['parentId', { parentId: 'p1' }],
+            ['isFavorite', { isFavorite: true }],
+            ['viewStyle', { viewStyle: 'board' as const }],
+            ['description', { description: 'Notes' }],
+            ['color', { color: 'berry_red' as const }],
+            ['icon', { icon: 'star' as const }],
+        ])('fails the item when %s is given with a template', async (field, extra) => {
+            const result = await addProjects.execute(
+                { projects: [{ templateId: 'product-launch', ...extra }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addProjectFromTemplateId).not.toHaveBeenCalled()
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'product-launch', error: expect.stringContaining(field) },
+            ])
+        })
+
+        it('takes the workspace from the folder when only folderId is given', async () => {
+            mockTodoistApi.getFolder.mockResolvedValue(
+                createMockFolder({ id: 'folder-1', workspaceId: '111' }),
+            )
+
+            await addProjects.execute(
+                { projects: [{ templateId: 'product-launch', folderId: 'folder-1' }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addProjectFromTemplateId).toHaveBeenCalledWith(
+                expect.objectContaining({ workspaceId: '111', folderId: 'folder-1' }),
+            )
+            expect(mockTodoistApi.getPersonalProjectCapacity).not.toHaveBeenCalled()
+        })
+
+        it('fails the item when the folder is in another workspace than the one named', async () => {
+            mockTodoistApi.getWorkspaces.mockResolvedValue([ENGINEERING])
+            mockTodoistApi.getFolder.mockResolvedValue(
+                createMockFolder({ id: 'folder-1', name: 'Launches', workspaceId: '222' }),
+            )
+
+            const result = await addProjects.execute(
+                {
+                    projects: [
+                        {
+                            templateId: 'product-launch',
+                            workspace: 'Engineering',
+                            folderId: 'folder-1',
+                        },
+                    ],
+                },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addProjectFromTemplateId).not.toHaveBeenCalled()
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'product-launch',
+                    error: expect.stringContaining('is in workspace id=222, not "Engineering"'),
+                },
+            ])
+        })
+
+        it('fails an empty project given locale, which only applies to templates', async () => {
+            const result = await addProjects.execute(
+                { projects: [{ name: 'Inbox zero', locale: 'de' }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addProject).not.toHaveBeenCalled()
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'Inbox zero', error: expect.stringContaining('locale') },
+            ])
+        })
+
+        it('fails an empty project without a name', async () => {
+            const result = await addProjects.execute({ projects: [{}] }, mockTodoistApi)
+
+            expect(mockTodoistApi.addProject).not.toHaveBeenCalled()
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'Project 1', error: expect.stringContaining('name') },
+            ])
+        })
+
+        it('does not retry the create after a 502, since the project may already exist', async () => {
+            mockTodoistApi.addProjectFromTemplateId.mockRejectedValue(
+                createApiError({ status: 502, error: 'Bad gateway' }),
+            )
+
+            const result = await addProjects.execute(
+                { projects: [{ templateId: 'product-launch' }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addProjectFromTemplateId).toHaveBeenCalledTimes(1)
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'product-launch',
+                    error: expect.stringContaining(
+                        'The project may have been saved anyway. Check with find-projects before adding it again.',
+                    ),
+                },
+            ])
+        })
+
+        it('says not to retry when the new project cannot be read back', async () => {
+            vi.spyOn(console, 'error').mockImplementation(() => undefined)
+            mockTodoistApi.getProject.mockRejectedValue(
+                createApiError({ status: 404, error: 'Not found' }),
+            )
+
+            const result = await addProjects.execute(
+                { projects: [{ templateId: 'product-launch' }] },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'product-launch',
+                    error: expect.stringMatching(/new-project.*Do not retry/s),
+                },
             ])
         })
     })

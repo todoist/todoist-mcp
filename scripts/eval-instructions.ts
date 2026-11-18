@@ -218,6 +218,24 @@ const SCENARIOS: Scenario[] = [
         guards: 'instructions: workspace projects archive before delete',
     },
     {
+        id: 'project-from-template',
+        prompt: 'Start a new project from the "product-launch" template.',
+        expect: [ToolNames.ADD_PROJECTS],
+        check: (input) => {
+            const projects = Array.isArray(input.projects) ? input.projects : []
+            return projects.some(
+                (project) =>
+                    typeof project === 'object' &&
+                    project !== null &&
+                    'templateId' in project &&
+                    project.templateId === 'product-launch',
+            )
+                ? null
+                : `no project with templateId "product-launch": ${JSON.stringify(input)}`
+        },
+        guards: 'add-projects input: templateId creates a project from a template',
+    },
+    {
         id: 'priority-string',
         prompt: 'Set task 6XG4Vw2c9J to high priority.',
         expect: [ToolNames.UPDATE_TASKS],
