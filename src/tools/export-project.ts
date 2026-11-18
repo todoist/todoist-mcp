@@ -50,7 +50,6 @@ const exportProject = {
     outputSchema: OutputSchema,
     // Not read-only and open world: the "url" format uploads the CSV and returns a public link.
     annotations: {
-        title: 'Todoist: Export Project',
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: true,
