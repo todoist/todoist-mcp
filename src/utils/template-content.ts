@@ -38,6 +38,7 @@ const TemplateContentSchema = z.object({
                 icon: z.string().optional(),
             }),
         )
+        .min(1)
         .max(TemplateContentLimits.PROJECTS)
         .describe('The project the template creates. Always one.'),
     sections: z
@@ -144,31 +145,6 @@ function toSdkTemplateContent(content: ToolTemplateContent): TemplateContent {
     }
 }
 
-/**
- * One line comparing two contents, so a dropped task, comment or assignee shows up in the reply.
- * The backend drops assignees who are no longer workspace members, so compare against the saved
- * content where possible.
- */
-function describeContentChange(before: TemplateContent, after: TemplateContent): string {
-    const layout = (content: TemplateContent) => content.projects[0]?.viewStyle ?? 'none'
-    const count = (label: string, from: number, to: number) => `${label} ${from} → ${to}`
-    return [
-        `layout ${layout(before)} → ${layout(after)}`,
-        count('sections', before.sections.length, after.sections.length),
-        count('tasks', before.tasks.length, after.tasks.length),
-        count(
-            'assigned tasks',
-            before.tasks.filter((task) => task.responsibleUid).length,
-            after.tasks.filter((task) => task.responsibleUid).length,
-        ),
-        count(
-            'comments',
-            before.comments.length + before.projectComments.length,
-            after.comments.length + after.projectComments.length,
-        ),
-    ].join(', ')
-}
-
 const MAX_OUTLINED_TASKS = 20
 
 /**
@@ -198,7 +174,6 @@ function outlineTemplateContent(content: ToolTemplateContent): string {
 }
 
 export {
-    describeContentChange,
     outlineTemplateContent,
     TemplateContentSchema,
     toSdkTemplateContent,

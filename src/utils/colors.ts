@@ -26,13 +26,11 @@ export const ColorSchema = z
     .describe(colorDescription)
 
 /**
- * ColorSchema with a different default. `.describe()` on ColorSchema replaces its description,
- * which would drop the list of valid colors; this keeps the list and swaps the last sentence.
+ * ColorSchema with a different default: keeps the list of valid colors and swaps the last
+ * sentence, since `.describe()` replaces the whole description.
  */
 export function colorSchemaWithDefault(defaultText: string) {
-    return z
-        .preprocess(normalizeColor, z.enum(colorKeys).optional())
-        .describe(colorChoices + defaultText)
+    return ColorSchema.describe(colorChoices + defaultText)
 }
 
 // For OUTPUT: strict enum. Kept for reference — output schemas use ColorOutputSchema.
