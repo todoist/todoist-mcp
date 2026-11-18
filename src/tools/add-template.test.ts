@@ -1,6 +1,7 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { z } from 'zod'
+import { formatToolExecutionError } from '../tool-execution-error.js'
 import { executeWithRetry } from '../utils/retry.js'
 import {
     createApiError,
@@ -110,6 +111,48 @@ describe(`${ADD_TEMPLATE} tool`, () => {
             })
             expect(result.textContent).toBe(
                 'Draft of project (id=project-1) as a template, not saved: board layout, 1 section, 2 tasks.\n- Plan [Week 1]\n    - Details\nBefore saving, show the user the draft and ask whether to change anything. Then call add-template again with preview: false, a name and description, and the edited `content` if it changed.',
+            )
+        })
+
+        // Dates and comments go back as they came, so a recurring due keeps its time and timezone.
+        it('saves a project draft with its dates and comments as they came', async () => {
+            const due = {
+                date: '2026-11-23T09:00:00',
+                string: 'every monday at 9am',
+                lang: 'en',
+                isRecurring: true,
+                timezone: 'Europe/Rome',
+            }
+            mockTodoistApi.previewProjectAsTemplate.mockResolvedValue({
+                templateType: 'project',
+                workspaceId: null,
+                content: {
+                    projects: [{ viewStyle: 'list' }],
+                    sections: [],
+                    tasks: [{ id: 't1', content: 'Review', priority: 1, due }],
+                    comments: [{ taskId: 't1', content: 'Keep it short' }],
+                    projectComments: [],
+                    projectViewOptionsDefaults: [],
+                },
+            })
+
+            const draft = await addTemplate.execute({ projectId: 'project-1' }, mockTodoistApi)
+            const content = (draft.structuredContent as { content: typeof EDITED }).content
+            await addTemplate.execute(
+                { projectId: 'project-1', ...SAVE, color: 'blue', content },
+                mockTodoistApi,
+            )
+
+            expect(content.tasks[0]).toEqual(expect.objectContaining({ due }))
+            expect(mockTodoistApi.saveProjectAsTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: expect.objectContaining({
+                        tasks: [expect.objectContaining({ id: 't1', due })],
+                        comments: [
+                            expect.objectContaining({ taskId: 't1', content: 'Keep it short' }),
+                        ],
+                    }),
+                }),
             )
         })
 
@@ -243,6 +286,56 @@ describe(`${ADD_TEMPLATE} tool`, () => {
             )
         })
 
+        it("shares a template saved into the project's own workspace, without moving it", async () => {
+            mockTodoistApi.getProject.mockResolvedValue(createMockWorkspaceProject())
+            mockTodoistApi.saveProjectAsTemplate.mockResolvedValue(
+                createMockTemplate({ workspaceId: TEST_IDS.WORKSPACE_1 }),
+            )
+            mockTodoistApi.updateTemplate.mockResolvedValue(
+                createMockTemplate({
+                    workspaceId: TEST_IDS.WORKSPACE_1,
+                    sharedWithWorkspaceMembers: true,
+                }),
+            )
+
+            await addTemplate.execute(
+                {
+                    projectId: TEST_IDS.PROJECT_WORKSPACE,
+                    ...SAVE,
+                    workspace: 'Test Workspace',
+                    sharedWithWorkspaceMembers: true,
+                },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.updateTemplate).toHaveBeenCalledWith('UT_28Ex1', {
+                workspaceId: undefined,
+                sharedWithWorkspaceMembers: true,
+            })
+        })
+
+        it('saves a project from another workspace as personal, then moves it', async () => {
+            mockTodoistApi.getProject.mockResolvedValue(
+                createMockWorkspaceProject({ workspaceId: 'other-workspace' }),
+            )
+            mockTodoistApi.updateTemplate.mockResolvedValue(
+                createMockTemplate({ workspaceId: TEST_IDS.WORKSPACE_1 }),
+            )
+
+            await addTemplate.execute(
+                { projectId: TEST_IDS.PROJECT_WORKSPACE, ...SAVE, workspace: 'Test Workspace' },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.saveProjectAsTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({ forWorkspace: undefined }),
+            )
+            expect(mockTodoistApi.updateTemplate).toHaveBeenCalledWith('UT_28Ex1', {
+                workspaceId: TEST_IDS.WORKSPACE_1,
+                sharedWithWorkspaceMembers: undefined,
+            })
+        })
+
         it("saves straight into the project's own workspace, keeping assignees", async () => {
             mockTodoistApi.getProject.mockResolvedValue(createMockWorkspaceProject())
             mockTodoistApi.saveProjectAsTemplate.mockResolvedValue(
@@ -287,7 +380,8 @@ describe(`${ADD_TEMPLATE} tool`, () => {
             expect(mockTodoistApi.saveProjectAsTemplate).not.toHaveBeenCalled()
         })
 
-        it('retries the save after a 503', async () => {
+        // The registrar retries a whole call after a 503, which is safe: nothing was saved.
+        it('saves again when the whole call is retried after a 503', async () => {
             vi.useFakeTimers()
             try {
                 mockTodoistApi.saveProjectAsTemplate
@@ -296,9 +390,11 @@ describe(`${ADD_TEMPLATE} tool`, () => {
                     )
                     .mockResolvedValueOnce(createMockTemplate())
 
-                const promise = addTemplate.execute(
-                    { projectId: 'project-1', ...SAVE, color: 'blue' },
-                    mockTodoistApi,
+                const promise = executeWithRetry(() =>
+                    addTemplate.execute(
+                        { projectId: 'project-1', ...SAVE, color: 'blue' },
+                        mockTodoistApi,
+                    ),
                 )
                 await vi.runAllTimersAsync()
                 await promise
@@ -307,20 +403,6 @@ describe(`${ADD_TEMPLATE} tool`, () => {
             } finally {
                 vi.useRealTimers()
             }
-        })
-
-        it('does not retry the save after a 502, since the template may already exist', async () => {
-            mockTodoistApi.saveProjectAsTemplate.mockRejectedValue(
-                createApiError({ status: 502, error: 'Bad gateway' }),
-            )
-
-            await expect(
-                addTemplate.execute(
-                    { projectId: 'project-1', ...SAVE, color: 'blue' },
-                    mockTodoistApi,
-                ),
-            ).rejects.toThrow()
-            expect(mockTodoistApi.saveProjectAsTemplate).toHaveBeenCalledTimes(1)
         })
 
         // The registrar runs every tool call inside executeWithRetry, which retries a
@@ -334,6 +416,7 @@ describe(`${ADD_TEMPLATE} tool`, () => {
                     mockTodoistApi.saveProjectAsTemplate.mockRejectedValue(
                         createApiError({ status, error: 'Gateway error' }),
                     )
+                    vi.spyOn(console, 'error').mockImplementation(() => {})
 
                     const promise = executeWithRetry(() =>
                         addTemplate.execute(
@@ -341,13 +424,16 @@ describe(`${ADD_TEMPLATE} tool`, () => {
                             mockTodoistApi,
                         ),
                     )
-                    const assertion = expect(promise).rejects.toThrow(
-                        'The template may have been saved',
-                    )
+                    const caught = promise.catch((error: unknown) => error)
                     await vi.runAllTimersAsync()
-                    await assertion
+                    const error = await caught
 
                     expect(mockTodoistApi.saveProjectAsTemplate).toHaveBeenCalledTimes(1)
+                    // What the model reads, after the registrar formats the error.
+                    const formatted = formatToolExecutionError(error)
+                    expect(formatted).toContain('The template may have been saved')
+                    expect(formatted).toContain('Do not retry')
+                    expect(formatted).not.toContain('Retry shortly')
                 } finally {
                     vi.useRealTimers()
                 }
@@ -453,7 +539,7 @@ describe(`${ADD_TEMPLATE} tool`, () => {
                 workspaceError: 'Forbidden',
             })
             expect(result.textContent).toBe(
-                'Created template "Launch plan" (id=UT_28Ex1) from the draft. It is in your personal templates. Moving it into the workspace or sharing it failed: Forbidden. Retry with update-template. Use add-projects with this templateId to start a new project from it.',
+                'Created template "Launch plan" (id=UT_28Ex1) from the draft. It is in your personal templates. Moving it into the workspace or sharing it failed: Forbidden. Ask the user to move or share it in Todoist. Use add-projects with this templateId to start a new project from it.',
             )
         })
     })

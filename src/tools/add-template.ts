@@ -2,9 +2,9 @@ import type { ColorKey, Template, TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
-import { getProjectOrExplain } from '../tool-helpers.js'
-import { ColorKeySchema, colorSchemaWithDefault } from '../utils/colors.js'
-import { executeCreateWithRetry, executeWithRetry, extractHttpStatusCode } from '../utils/retry.js'
+import { getProjectOrExplain, isWorkspaceProject } from '../tool-helpers.js'
+import { ColorOutputSchema, colorSchemaWithDefault } from '../utils/colors.js'
+import { executeWithRetry, extractHttpStatusCode } from '../utils/retry.js'
 import {
     outlineTemplateContent,
     type ToolTemplateContent,
@@ -169,7 +169,7 @@ async function getDraft({
 
     if (projectId) {
         const draft = toToolTemplateContent(
-            (await executeWithRetry(() => client.previewProjectAsTemplate(projectId))).content,
+            (await client.previewProjectAsTemplate(projectId)).content,
         )
         return {
             textContent: `Draft of project (id=${projectId}) as a template, not saved: ${outlineTemplateContent(draft)}\n${ASK_BEFORE_SAVING} and the edited \`content\` if it changed.`,
@@ -179,11 +179,7 @@ async function getDraft({
 
     if (file) {
         const draft = toToolTemplateContent(
-            (
-                await executeWithRetry(() =>
-                    client.previewTemplateFromCsv({ file, fileName: 'template.csv' }),
-                )
-            ).content,
+            (await client.previewTemplateFromCsv({ file, fileName: 'template.csv' })).content,
         )
         return {
             textContent: `Draft of the CSV as a template, not saved: ${outlineTemplateContent(draft)}\n${ASK_BEFORE_SAVING} and either the CSV or the edited \`content\`.`,
@@ -221,28 +217,26 @@ async function save(
 ) {
     const [workspaceId, project] = await Promise.all([
         workspace
-            ? executeWithRetry(() => workspaceResolver.resolveWorkspace(client, workspace)).then(
-                  (resolved) => resolved.workspaceId,
-              )
+            ? workspaceResolver
+                  .resolveWorkspace(client, workspace)
+                  .then((resolved) => resolved.workspaceId)
             : undefined,
         // Read for its color, and to tell whether it is already in the target workspace.
-        projectId && (!color || workspace)
-            ? executeWithRetry(() => getProjectOrExplain(client, projectId))
-            : undefined,
+        projectId && (!color || workspace) ? getProjectOrExplain(client, projectId) : undefined,
     ])
     const sdkContent = content ? toSdkTemplateContent(content) : undefined
 
     let template: Template
     if (projectId) {
         const projectWorkspaceId =
-            project && 'workspaceId' in project ? project.workspaceId : undefined
+            project && isWorkspaceProject(project) ? project.workspaceId : undefined
 
         template = await saveOnce(() =>
             client.saveProjectAsTemplate({
                 projectId,
                 name,
                 description,
-                color: color ?? toColorKey(project?.color),
+                color: color ?? ColorOutputSchema.parse(project?.color) ?? 'charcoal',
                 // Saving straight into the project's own workspace keeps its assignees.
                 forWorkspace: workspaceId && workspaceId === projectWorkspaceId ? true : undefined,
                 content: sdkContent,
@@ -271,6 +265,7 @@ async function save(
     let workspaceError: string | undefined
     if (move || share) {
         try {
+            // Its errors are caught below, so the registrar never retries it: retry here.
             template = await executeWithRetry(() =>
                 client.updateTemplate(template.id, {
                     workspaceId: move ? workspaceId : undefined,
@@ -301,11 +296,6 @@ async function save(
     }
 }
 
-function toColorKey(color: string | undefined): ColorKey {
-    const parsed = ColorKeySchema.safeParse(color)
-    return parsed.success ? parsed.data : 'charcoal'
-}
-
 function generateTextContent({
     source,
     template,
@@ -325,26 +315,30 @@ function generateTextContent({
         ? ` It is in the workspace's templates (workspace id=${workspaceId}), ${sharing}.`
         : ' It is in your personal templates.'
     const failed = workspaceError
-        ? ` Moving it into the workspace or sharing it failed: ${workspaceError}. Retry with update-template.`
+        ? ` Moving it into the workspace or sharing it failed: ${workspaceError}. Ask the user to move or share it in Todoist.`
         : ''
 
     return `${created}${where}${failed} Use add-projects with this templateId to start a new project from it.`
 }
 
 /**
- * Saves a template, retrying only a 503. After a 502 or 504 the template may already
- * exist, and the API can't dedupe a repeat. The registrar re-runs a whole tool call on
- * those statuses, so the error is replaced by one it won't retry.
+ * Saves a template once. The registrar re-runs a whole tool call after a 502, 503 or
+ * 504. A 503 means nothing was saved, so that retry is safe. After a 502 or 504 the
+ * template may already exist and the API can't dedupe a repeat, so the error is
+ * replaced by one the registrar won't retry. It has no `cause`, so the error formatter
+ * passes its message on as it is, instead of the API's message and "Retry shortly".
  */
 async function saveOnce(save: () => Promise<Template>): Promise<Template> {
     try {
-        return await executeCreateWithRetry(save)
+        return await save()
     } catch (error) {
         const statusCode = extractHttpStatusCode(error)
         if (statusCode === 502 || statusCode === 504) {
+            console.error(`${ToolNames.ADD_TEMPLATE}: the save may have gone through`, {
+                error: formatBatchItemError(error),
+            })
             throw new Error(
                 'The template may have been saved: the server failed after receiving it. Do not retry. Ask the user to check their templates before saving again.',
-                { cause: error },
             )
         }
         throw error

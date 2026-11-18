@@ -6,7 +6,7 @@ import {
 } from '@todoist/sdk'
 import { z } from 'zod'
 import { BatchLimits, TemplateContentLimits } from './constants.js'
-import { convertNumberToPriority, convertPriorityToNumber, PRIORITY_VALUES } from './priorities.js'
+import { convertNumberToPriority, convertPriorityToNumber, PrioritySchema } from './priorities.js'
 
 // get-template returns complete dates; a new date can be just `string`. Send dates back as
 // received so their type, time and timezone are kept.
@@ -52,7 +52,7 @@ const TemplateContentSchema = z.object({
                 description: z.string().optional(),
                 sectionId: z.string().optional(),
                 parentId: z.string().optional(),
-                priority: z.enum(PRIORITY_VALUES).optional().describe('p1 is the highest.'),
+                priority: PrioritySchema.optional().describe('p1 is the highest.'),
                 labels: z.array(z.string()).max(BatchLimits.LABELS_PER_TASK).optional(),
                 due: ContentDateSchema.optional(),
                 deadline: ContentDateSchema.optional(),
