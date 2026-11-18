@@ -145,6 +145,7 @@ New tool? Full checklist in `AGENTS.md`. Short version: copy `add-tasks.ts`; add
 - `labels.ts` — label name normalization, and `matchesLabels`/`findLabelName`, which compare names the way the filter query does (ignoring case and accents)
 - `filtered-pages.ts` — `collectFilteredPage`: one page of `limit` matches for a short list the API cannot filter (a project's tasks), read from the start on every call, with a cursor naming the next match so that completing returned items between calls neither skips matches nor ends the list
 - `colors.ts` — Todoist color name ↔ key
+- `template-content.ts` — `TemplateContentSchema`, the template content tools take and return (`p1`–`p4` priorities, complete dates), with `toSdkTemplateContent`/`toToolTemplateContent` to convert it and `outlineTemplateContent` for a short text outline
 - `reminder-schemas.ts` — reminder-specific shapes
 - `assignment-validator.ts` — validate collaborator assignments
 - `user-resolver.ts` / `workspace-resolver.ts` — resolve user/workspace refs. `userResolver.getUserShortNames` and `getAssigneeShortNames` name people by short name (`Ada L.`), as the Todoist CLI does, for tool text output
@@ -159,7 +160,7 @@ New tool? Full checklist in `AGENTS.md`. Short version: copy `add-tasks.ts`; add
 - `concurrency.ts` — `getMoveLimiter`/`getWriteLimiter` bound how many write requests a batch tool has in flight. Limiters are per account (registered by `createTodoistClient`), because the HTTP transport builds a client per request. Task moves get their own single-slot lane: the API locks a task's whole tree for a move, so overlapping moves contend
 - `move-planner.ts` — `planMove`/`isMoveRedundant`/`destinationKey`: decides whether a requested container change is a real move, and groups tasks bound for the same destination so they can share one request
 - `validate-todoist-token.ts` — token validation (`'valid' | 'invalid' | 'forbidden'`) for the HTTP middleware and for hosts: `@todoist/mcp-core/host`'s `validateBearerToken` against `/api/v1/user`, sent through the SDK's proxy-aware transport
-- `test-helpers.ts` — `createMockTask`, `createMockProject`, `createMockSection`, `TEST_IDS`, `TODAY`
+- `test-helpers.ts` — `createMockTask`, `createMockProject`, `createMockSection`, `createMockTemplate`, `TEST_IDS`, `TODAY`
 
 ## Todoist SDK + auth
 

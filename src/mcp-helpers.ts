@@ -63,7 +63,7 @@ const USE_STRUCTURED_CONTENT =
 
 // Argument names whose values carry user content rather than identifiers, and so
 // must not reach server logs when a tool throws.
-const REDACTED_ARG_KEYS = new Set(['file'])
+const REDACTED_ARG_KEYS = new Set(['file', 'csvFileContent', 'content'])
 
 function redactArgs(args: unknown): unknown {
     if (!args || typeof args !== 'object' || Array.isArray(args)) {

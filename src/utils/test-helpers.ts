@@ -10,6 +10,7 @@ import type {
     SyncError,
     SyncResponse,
     Task,
+    Template,
     TodoistApi,
     Workspace,
     WorkspaceProject,
@@ -220,6 +221,35 @@ export function createMockFolder(overrides: Partial<Folder> = {}): Folder {
         defaultOrder: 1,
         defaultOrderKey: null,
         childOrder: 1,
+        ...overrides,
+    }
+}
+
+/**
+ * A saved personal template, as the SDK returns it.
+ */
+export function createMockTemplate(overrides: Partial<Template> = {}): Template {
+    return {
+        id: 'UT_28Ex1',
+        name: 'Launch plan',
+        templateType: 'project',
+        templateSource: 'user',
+        shortDescription: 'Everything for a launch',
+        longDescription: 'Everything for a launch',
+        instructions: null,
+        thumbnailImage: null,
+        thumbnailImageDark: null,
+        coverImage: null,
+        previewImage: null,
+        templateColor: 'blue',
+        backgroundColor: null,
+        backgroundColorDark: null,
+        creator: { userId: '1', name: 'Ada', position: '', avatar: '' },
+        seo: null,
+        moreResources: [],
+        categoryIds: [],
+        workspaceId: null,
+        sharedWithWorkspaceMembers: false,
         ...overrides,
     }
 }

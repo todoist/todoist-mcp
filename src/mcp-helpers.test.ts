@@ -328,12 +328,22 @@ describe('registerTools error path', () => {
             context: unknown,
         ) => Promise<unknown>
 
-        await callback({ projectId: '123', file: 'TYPE,CONTENT\ntask,Private plans' }, {})
+        await callback(
+            {
+                projectId: '123',
+                file: 'TYPE,CONTENT\ntask,Private plans',
+                csvFileContent: 'TYPE,CONTENT\ntask,Private CSV',
+                content: { tasks: [{ id: 't1', content: 'Private task' }] },
+            },
+            {},
+        )
 
         const loggedArgs = consoleError.mock.calls[0]?.[1] as { args: Record<string, unknown> }
         expect(loggedArgs.args.file).toBe('[redacted]')
+        expect(loggedArgs.args.csvFileContent).toBe('[redacted]')
+        expect(loggedArgs.args.content).toBe('[redacted]')
         expect(loggedArgs.args.projectId).toBe('123')
-        expect(JSON.stringify(loggedArgs)).not.toContain('Private plans')
+        expect(JSON.stringify(loggedArgs)).not.toMatch(/Private (plans|CSV|task)/)
 
         consoleError.mockRestore()
     })

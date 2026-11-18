@@ -1,8 +1,10 @@
 import type { ColorKey, Template, TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
+import { formatBatchItemError } from '../tool-execution-error.js'
+import { getProjectOrExplain } from '../tool-helpers.js'
 import { ColorKeySchema, colorSchemaWithDefault } from '../utils/colors.js'
-import { executeCreateWithRetry, executeWithRetry } from '../utils/retry.js'
+import { executeCreateWithRetry, executeWithRetry, extractHttpStatusCode } from '../utils/retry.js'
 import {
     outlineTemplateContent,
     type ToolTemplateContent,
@@ -132,6 +134,11 @@ const addTemplate = {
                 'Nothing to save: pass `content`, or start from a `projectId` or `csvFileContent`.',
             )
         }
+        if (args.sharedWithWorkspaceMembers && !args.workspace) {
+            throw new Error(
+                'Sharing needs `workspace`: only a workspace template can be shared with its members. Nothing was saved.',
+            )
+        }
         if (!args.name || !args.description) {
             throw new Error(
                 'A name and a description are required to save the template. Leave out `preview` to see the draft first.',
@@ -212,23 +219,25 @@ async function save(
         sharedWithWorkspaceMembers?: boolean
     },
 ) {
-    const workspaceId = workspace
-        ? (await executeWithRetry(() => workspaceResolver.resolveWorkspace(client, workspace)))
-              .workspaceId
-        : undefined
+    const [workspaceId, project] = await Promise.all([
+        workspace
+            ? executeWithRetry(() => workspaceResolver.resolveWorkspace(client, workspace)).then(
+                  (resolved) => resolved.workspaceId,
+              )
+            : undefined,
+        // Read for its color, and to tell whether it is already in the target workspace.
+        projectId && (!color || workspace)
+            ? executeWithRetry(() => getProjectOrExplain(client, projectId))
+            : undefined,
+    ])
     const sdkContent = content ? toSdkTemplateContent(content) : undefined
 
     let template: Template
     if (projectId) {
-        const project =
-            color && !workspaceId
-                ? undefined
-                : await executeWithRetry(() => client.getProject(projectId))
         const projectWorkspaceId =
             project && 'workspaceId' in project ? project.workspaceId : undefined
 
-        // A create retries only a 503: after a 502 or 504 the template may already exist.
-        template = await executeCreateWithRetry(() =>
+        template = await saveOnce(() =>
             client.saveProjectAsTemplate({
                 projectId,
                 name,
@@ -251,7 +260,7 @@ async function save(
                 'Nothing to save: pass `content`, or start from a `projectId` or `csvFileContent`.',
             )
         }
-        template = await executeCreateWithRetry(() =>
+        template = await saveOnce(() =>
             client.addTemplate({ ...source, name, description, color: color ?? 'charcoal' }),
         )
     }
@@ -269,7 +278,7 @@ async function save(
                 }),
             )
         } catch (error) {
-            workspaceError = error instanceof Error ? error.message : String(error)
+            workspaceError = formatBatchItemError(error)
         }
     }
 
@@ -320,6 +329,26 @@ function generateTextContent({
         : ''
 
     return `${created}${where}${failed} Use add-projects with this templateId to start a new project from it.`
+}
+
+/**
+ * Saves a template, retrying only a 503. After a 502 or 504 the template may already
+ * exist, and the API can't dedupe a repeat. The registrar re-runs a whole tool call on
+ * those statuses, so the error is replaced by one it won't retry.
+ */
+async function saveOnce(save: () => Promise<Template>): Promise<Template> {
+    try {
+        return await executeCreateWithRetry(save)
+    } catch (error) {
+        const statusCode = extractHttpStatusCode(error)
+        if (statusCode === 502 || statusCode === 504) {
+            throw new Error(
+                'The template may have been saved: the server failed after receiving it. Do not retry. Ask the user to check their templates before saving again.',
+                { cause: error },
+            )
+        }
+        throw error
+    }
 }
 
 export { addTemplate }

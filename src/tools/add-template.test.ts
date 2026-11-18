@@ -1,8 +1,11 @@
-import type { Template, TodoistApi } from '@todoist/sdk'
+import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { z } from 'zod'
+import { executeWithRetry } from '../utils/retry.js'
 import {
     createApiError,
     createMockProject,
+    createMockTemplate,
     createMockWorkspace,
     createMockWorkspaceProject,
     TEST_IDS,
@@ -19,35 +22,10 @@ const mockTodoistApi = {
     updateTemplate: vi.fn(),
     getProject: vi.fn(),
     getWorkspaces: vi.fn(),
+    getWorkspaceActiveProjects: vi.fn(),
 } as unknown as Mocked<TodoistApi>
 
 const { ADD_TEMPLATE } = ToolNames
-
-function buildTemplate(overrides: Partial<Template> = {}): Template {
-    return {
-        id: 'UT_28Ex1',
-        name: 'Launch plan',
-        templateType: 'project',
-        templateSource: 'user',
-        shortDescription: 'Everything for a launch',
-        longDescription: 'Everything for a launch',
-        instructions: null,
-        thumbnailImage: null,
-        thumbnailImageDark: null,
-        coverImage: null,
-        previewImage: null,
-        templateColor: 'blue',
-        backgroundColor: null,
-        backgroundColorDark: null,
-        creator: { userId: '1', name: 'Ada', position: '', avatar: '' },
-        seo: null,
-        moreResources: [],
-        categoryIds: [],
-        workspaceId: null,
-        sharedWithWorkspaceMembers: false,
-        ...overrides,
-    }
-}
 
 const EDITED = {
     projects: [{ viewStyle: 'list' as const }],
@@ -64,8 +42,8 @@ describe(`${ADD_TEMPLATE} tool`, () => {
     beforeEach(() => {
         vi.clearAllMocks()
         workspaceResolver.clearCache()
-        mockTodoistApi.saveProjectAsTemplate.mockResolvedValue(buildTemplate())
-        mockTodoistApi.addTemplate.mockResolvedValue(buildTemplate())
+        mockTodoistApi.saveProjectAsTemplate.mockResolvedValue(createMockTemplate())
+        mockTodoistApi.addTemplate.mockResolvedValue(createMockTemplate())
         mockTodoistApi.getProject.mockResolvedValue(
             createMockProject({ id: 'project-1', color: 'berry_red' }),
         )
@@ -242,10 +220,33 @@ describe(`${ADD_TEMPLATE} tool`, () => {
             )
         })
 
+        it('saves a personal project as a personal template, then moves it into the workspace', async () => {
+            mockTodoistApi.getProject.mockResolvedValue(createMockProject({ id: 'project-1' }))
+            mockTodoistApi.updateTemplate.mockResolvedValue(
+                createMockTemplate({ workspaceId: TEST_IDS.WORKSPACE_1 }),
+            )
+
+            const result = await addTemplate.execute(
+                { projectId: 'project-1', ...SAVE, workspace: 'Test Workspace' },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.saveProjectAsTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({ forWorkspace: undefined }),
+            )
+            expect(mockTodoistApi.updateTemplate).toHaveBeenCalledWith('UT_28Ex1', {
+                workspaceId: TEST_IDS.WORKSPACE_1,
+                sharedWithWorkspaceMembers: undefined,
+            })
+            expect(result.structuredContent).toEqual(
+                expect.objectContaining({ workspaceId: TEST_IDS.WORKSPACE_1 }),
+            )
+        })
+
         it("saves straight into the project's own workspace, keeping assignees", async () => {
             mockTodoistApi.getProject.mockResolvedValue(createMockWorkspaceProject())
             mockTodoistApi.saveProjectAsTemplate.mockResolvedValue(
-                buildTemplate({ workspaceId: TEST_IDS.WORKSPACE_1 }),
+                createMockTemplate({ workspaceId: TEST_IDS.WORKSPACE_1 }),
             )
 
             const result = await addTemplate.execute(
@@ -265,6 +266,18 @@ describe(`${ADD_TEMPLATE} tool`, () => {
             )
         })
 
+        it('explains a project it cannot find, without saving', async () => {
+            mockTodoistApi.getProject.mockRejectedValue(
+                createApiError({ status: 404, error: 'Not found' }),
+            )
+            mockTodoistApi.getWorkspaces.mockResolvedValue([])
+
+            await expect(
+                addTemplate.execute({ projectId: 'missing', ...SAVE }, mockTodoistApi),
+            ).rejects.toThrow("Project missing was not found. It isn't one of the user's projects")
+            expect(mockTodoistApi.saveProjectAsTemplate).not.toHaveBeenCalled()
+        })
+
         it('saves nothing when the project cannot be read for its color', async () => {
             mockTodoistApi.getProject.mockRejectedValue(new Error('Project not found'))
 
@@ -281,7 +294,7 @@ describe(`${ADD_TEMPLATE} tool`, () => {
                     .mockRejectedValueOnce(
                         createApiError({ status: 503, error: 'Service Unavailable' }),
                     )
-                    .mockResolvedValueOnce(buildTemplate())
+                    .mockResolvedValueOnce(createMockTemplate())
 
                 const promise = addTemplate.execute(
                     { projectId: 'project-1', ...SAVE, color: 'blue' },
@@ -309,6 +322,37 @@ describe(`${ADD_TEMPLATE} tool`, () => {
             ).rejects.toThrow()
             expect(mockTodoistApi.saveProjectAsTemplate).toHaveBeenCalledTimes(1)
         })
+
+        // The registrar runs every tool call inside executeWithRetry, which retries a
+        // 502/504. Re-running add-template after a save that went through would create
+        // a second template.
+        it.each([502, 504])(
+            'saves once after a %i even when the whole call is retried, as the registrar does',
+            async (status) => {
+                vi.useFakeTimers()
+                try {
+                    mockTodoistApi.saveProjectAsTemplate.mockRejectedValue(
+                        createApiError({ status, error: 'Gateway error' }),
+                    )
+
+                    const promise = executeWithRetry(() =>
+                        addTemplate.execute(
+                            { projectId: 'project-1', ...SAVE, color: 'blue' },
+                            mockTodoistApi,
+                        ),
+                    )
+                    const assertion = expect(promise).rejects.toThrow(
+                        'The template may have been saved',
+                    )
+                    await vi.runAllTimersAsync()
+                    await assertion
+
+                    expect(mockTodoistApi.saveProjectAsTemplate).toHaveBeenCalledTimes(1)
+                } finally {
+                    vi.useRealTimers()
+                }
+            },
+        )
     })
 
     describe('saving without a project', () => {
@@ -341,14 +385,16 @@ describe(`${ADD_TEMPLATE} tool`, () => {
 
             const [args] = mockTodoistApi.addTemplate.mock.calls[0] ?? []
             expect(args?.fileName).toBe('template.csv')
-            expect(await (args?.file as Blob).text()).toBe('TYPE,CONTENT\ntask,Plan')
+            const file = args?.file
+            expect(file).toBeInstanceOf(Blob)
+            expect(await (file as Blob).text()).toBe('TYPE,CONTENT\ntask,Plan')
             expect(args?.color).toBe('blue')
             expect(result.textContent).toContain('from CSV content')
         })
 
         it('moves the new template into a workspace and shares it, as the app does', async () => {
             mockTodoistApi.updateTemplate.mockResolvedValue(
-                buildTemplate({
+                createMockTemplate({
                     workspaceId: TEST_IDS.WORKSPACE_1,
                     sharedWithWorkspaceMembers: true,
                 }),
@@ -378,6 +424,21 @@ describe(`${ADD_TEMPLATE} tool`, () => {
             )
         })
 
+        it("keeps the API's status and tag when moving the new template fails", async () => {
+            mockTodoistApi.updateTemplate.mockRejectedValue(
+                createApiError({ status: 403, error: 'Not allowed', tag: 'FORBIDDEN' }),
+            )
+
+            const result = await addTemplate.execute(
+                { ...SAVE, content: EDITED, workspace: 'Test Workspace' },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent).toMatchObject({
+                workspaceError: expect.stringMatching(/Not allowed.*403.*FORBIDDEN/),
+            })
+        })
+
         it('reports a template it created but could not move, instead of failing', async () => {
             mockTodoistApi.updateTemplate.mockRejectedValue(new Error('Forbidden'))
 
@@ -402,12 +463,31 @@ describe(`${ADD_TEMPLATE} tool`, () => {
             ['nothing', {}, 'Nothing to save'],
             ['a project and a CSV', { projectId: 'p', csvFileContent: 'TYPE' }, 'not both'],
             ['a CSV and content', { csvFileContent: 'TYPE', content: EDITED }, 'not both'],
+            [
+                'sharing without a workspace',
+                { content: EDITED, sharedWithWorkspaceMembers: true },
+                'Sharing needs `workspace`',
+            ],
         ])('saves nothing when given %s', async (_, source, message) => {
             await expect(
                 addTemplate.execute({ ...SAVE, ...source }, mockTodoistApi),
             ).rejects.toThrow(message)
             expect(mockTodoistApi.saveProjectAsTemplate).not.toHaveBeenCalled()
             expect(mockTodoistApi.addTemplate).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['no project', { ...EDITED, projects: [] }],
+            ['two projects', { ...EDITED, projects: [...EDITED.projects, ...EDITED.projects] }],
+            [
+                'a numeric priority',
+                { ...EDITED, tasks: [{ id: 't1', content: 'Plan', priority: 4 }] },
+            ],
+        ])('rejects content with %s before any request', (_, content) => {
+            const schema = z.object(addTemplate.parameters)
+
+            expect(schema.safeParse({ ...SAVE, content }).success).toBe(false)
+            expect(schema.safeParse({ ...SAVE, content: EDITED }).success).toBe(true)
         })
 
         it('needs a name and a description to save', async () => {

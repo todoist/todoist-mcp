@@ -480,9 +480,13 @@ const SCENARIOS: Scenario[] = [
         prompt: 'Save my project 6XG4Pr0j3c ("Client onboarding") as a template called "Onboarding", as it is. No changes needed.',
         expect: [ToolNames.ADD_TEMPLATE],
         check: (input) =>
-            input.preview === false
-                ? null
-                : `preview is ${JSON.stringify(input.preview)}, so the user who asked to save as is gets a draft`,
+            input.preview !== false
+                ? `preview is ${JSON.stringify(input.preview)}, so the user who asked to save as is gets a draft`
+                : input.projectId !== '6XG4Pr0j3c'
+                  ? `projectId is ${JSON.stringify(input.projectId)}, so this doesn't save the user's project`
+                  : input.name !== 'Onboarding'
+                    ? `name is ${JSON.stringify(input.name)}, not the "Onboarding" the user asked for`
+                    : null,
         guards: 'add-template from a project: saving in one call when the user asked for no changes',
     },
     {
