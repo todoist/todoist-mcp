@@ -1,4 +1,4 @@
-import type { Comment, Section, Task, Template, TodoistApi } from '@todoist/sdk'
+import type { Comment, Section, Task, TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { z } from 'zod'
 import { formatToolExecutionError } from '../tool-execution-error.js'
@@ -6,6 +6,7 @@ import {
     createApiError,
     createMockProject,
     createMockTask,
+    createMockTemplate,
     createMockWorkspace,
     createMockWorkspaceProject,
     createMockWorkspaceProjectSummary,
@@ -720,35 +721,18 @@ describe(`${FETCH_OBJECT} tool`, () => {
     })
 
     describe('fetching templates', () => {
-        const TEMPLATE: Template = {
-            id: 'UT_28Ex1',
-            name: 'Launch plan',
-            templateType: 'project',
-            templateSource: 'user',
-            shortDescription: 'Everything for a launch',
-            longDescription: 'Everything for a launch',
-            instructions: null,
-            thumbnailImage: null,
-            thumbnailImageDark: null,
-            coverImage: null,
-            previewImage: null,
+        const TEMPLATE = createMockTemplate({
             templateColor: 'sky_blue',
-            backgroundColor: null,
-            backgroundColorDark: null,
             creator: null,
-            seo: null,
-            moreResources: [],
-            categoryIds: [],
-            workspaceId: '486413',
-            sharedWithWorkspaceMembers: false,
+            workspaceId: '111',
             canEdit: true,
-        }
+        })
 
         beforeEach(() => {
             mockTodoistApi.getTemplate.mockResolvedValue(TEMPLATE)
             mockTodoistApi.getTemplateContent.mockResolvedValue({
                 templateType: 'project',
-                workspaceId: '486413',
+                workspaceId: '111',
                 content: {
                     projects: [{ viewStyle: 'board', description: null, icon: null }],
                     sections: [{ id: 's1', name: 'Week 1', description: null }],
@@ -825,7 +809,7 @@ describe(`${FETCH_OBJECT} tool`, () => {
                     description: 'Everything for a launch',
                     color: 'sky_blue',
                     source: 'user',
-                    workspaceId: '486413',
+                    workspaceId: '111',
                     canEdit: true,
                 },
             })
@@ -851,6 +835,28 @@ describe(`${FETCH_OBJECT} tool`, () => {
                 { id: 't2', content: 'Details', parentId: 't1', priority: 'p4' },
             ])
             expect(content.comments).toEqual([{ taskId: 't1', content: 'Check this' }])
+        })
+
+        it('reads a gallery template, which has no workspace and says nothing about editing', async () => {
+            mockTodoistApi.getTemplate.mockResolvedValue(
+                createMockTemplate({
+                    id: 'product-launch',
+                    name: 'Product launch',
+                    templateSource: 'todoist',
+                    workspaceId: null,
+                    canEdit: undefined,
+                }),
+            )
+
+            const result = await fetchObject.execute(
+                { type: 'template', id: 'product-launch' },
+                mockTodoistApi,
+            )
+
+            const object = result.structuredContent.object as Record<string, unknown>
+            expect(object).toMatchObject({ id: 'product-launch', source: 'todoist' })
+            expect(object.workspaceId).toBeUndefined()
+            expect(object.canEdit).toBeUndefined()
         })
 
         it('outlines the tasks in the text reply', async () => {

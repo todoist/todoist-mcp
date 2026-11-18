@@ -49,7 +49,7 @@ const TemplateSchema = z.object({
         .describe('todoist for gallery templates, user for saved ones.'),
     workspaceId: z.string().optional().describe('Absent for personal and gallery templates.'),
     sharedWithWorkspaceMembers: z.boolean().optional(),
-    canEdit: z.boolean().describe('Whether update-template can change it.'),
+    canEdit: z.boolean().optional().describe('Whether update-template can change it.'),
     // Declared loosely to keep the tool surface small; update-template's `content` input
     // documents the full shape, which is what this returns.
     content: z
@@ -167,7 +167,7 @@ const fetchObject = {
                                 source: template.templateSource,
                                 workspaceId: template.workspaceId ?? undefined,
                                 sharedWithWorkspaceMembers: template.sharedWithWorkspaceMembers,
-                                canEdit: template.canEdit ?? false,
+                                canEdit: template.canEdit,
                                 content: toolContent,
                             },
                         },

@@ -19,7 +19,9 @@ const mockTodoistApi = {
 const { UPDATE_TEMPLATE } = ToolNames
 
 // Content as the SDK returns it: numeric priorities, complete dates.
-function sdkContent(tasks: Array<{ id: string; content: string; priority?: number }>) {
+function sdkContent(
+    tasks: Array<{ id: string; content: string; priority?: number; responsibleUid?: string }>,
+) {
     return {
         templateType: 'project' as const,
         workspaceId: null,
@@ -136,6 +138,14 @@ describe(`${UPDATE_TEMPLATE} tool`, () => {
     })
 
     describe('content', () => {
+        let consoleError: ReturnType<typeof vi.spyOn>
+        beforeEach(() => {
+            consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+        })
+        afterEach(() => {
+            consoleError.mockRestore()
+        })
+
         it('sends the content with SDK priorities and reports what changed', async () => {
             mockTodoistApi.getTemplateContent
                 .mockResolvedValueOnce(sdkContent([{ id: 'a', content: 'Plan', priority: 1 }]))
@@ -202,6 +212,63 @@ describe(`${UPDATE_TEMPLATE} tool`, () => {
                 'The content was saved, but could not be read back to compare.',
             )
             expect(result.textContent).not.toContain('Content: layout')
+            expect(consoleError).toHaveBeenCalledWith(
+                'update-template: could not read the content after saving',
+                { error: expect.stringContaining('Network down') },
+            )
+        })
+
+        // The backend drops assignees who aren't workspace members. An addition in the same
+        // edit must not hide that: compare what was sent with what was saved.
+        it('names what the save dropped, even when the edit also added something', async () => {
+            const assigned = {
+                ...EDITED,
+                tasks: [
+                    { id: 't1', content: 'Plan', responsibleUid: '42' },
+                    { id: 't2', content: 'Ship', responsibleUid: '43' },
+                ],
+            }
+            mockTodoistApi.getTemplateContent
+                .mockResolvedValueOnce(
+                    sdkContent([{ id: 'a', content: 'Plan', responsibleUid: '42' }]),
+                )
+                .mockResolvedValueOnce(
+                    sdkContent([
+                        { id: 'b', content: 'Plan', responsibleUid: '42' },
+                        { id: 'c', content: 'Ship' },
+                    ]),
+                )
+
+            const result = await updateTemplate.execute(
+                { templateId: 'UT_28Ex1', content: assigned },
+                mockTodoistApi,
+            )
+
+            // Previous to saved shows no change in assigned tasks: 1 → 1.
+            expect(result.textContent).toContain('assigned tasks 1 → 1')
+            expect(result.textContent).toContain(
+                'Not everything sent was kept: assigned tasks sent 2, saved 1.',
+            )
+        })
+
+        it('saves even when the previous content cannot be read, and says so', async () => {
+            mockTodoistApi.getTemplateContent
+                .mockRejectedValueOnce(new Error('Rate limited'))
+                .mockResolvedValueOnce(sdkContent([{ id: 'b', content: 'Plan' }]))
+
+            const result = await updateTemplate.execute(
+                { templateId: 'UT_28Ex1', content: EDITED },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.updateTemplate).toHaveBeenCalledTimes(1)
+            expect(result.textContent).toContain(
+                'The previous content could not be read, so the change is not reported.',
+            )
+            expect(consoleError).toHaveBeenCalledWith(
+                'update-template: could not read the content before saving',
+                { error: expect.stringContaining('Rate limited') },
+            )
         })
     })
 
