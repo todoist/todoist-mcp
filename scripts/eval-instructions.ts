@@ -214,7 +214,7 @@ const SCENARIOS: Scenario[] = [
     },
     {
         id: 'edit-template-reads-first',
-        prompt: 'In my saved template UT_28Rc62VC22j439VcPJMw9xgWx2, rename the "Kickoff" task to "Kickoff meeting".',
+        prompt: 'In my saved template UT_28ExampleTemplateId000001, rename the "Kickoff" task to "Kickoff meeting".',
         // update-template replaces the whole content, so the content has to be read first.
         expect: [ToolNames.FETCH_OBJECT],
         check: (input) =>

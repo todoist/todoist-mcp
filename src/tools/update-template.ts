@@ -1,9 +1,12 @@
+import type { TemplateContent, TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
+import { formatBatchItemError } from '../tool-execution-error.js'
 import { colorSchemaWithDefault } from '../utils/colors.js'
 import { executeWithRetry } from '../utils/retry.js'
 import {
     describeContentChange,
+    describeDroppedContent,
     TemplateContentSchema,
     toSdkTemplateContent,
 } from '../utils/template-content.js'
@@ -109,13 +112,10 @@ const updateTemplate = {
         }
 
         // Read the current content first, so the reply can show what the new content changes.
+        // The read is only for the reply, so a failure doesn't stop the edit.
         const newContent = content ? toSdkTemplateContent(content) : undefined
         const [previousContent, workspaceId] = await Promise.all([
-            newContent
-                ? executeWithRetry(() => client.getTemplateContent(id)).then(
-                      (result) => result.content,
-                  )
-                : undefined,
+            newContent ? readContent(client, id, 'before') : undefined,
             workspace
                 ? workspaceResolver
                       .resolveWorkspace(client, workspace)
@@ -143,13 +143,19 @@ const updateTemplate = {
         // members. If that read fails, say so rather than compare against what was sent. Don't
         // throw: the registrar would retry the whole call and save the content a second time.
         let contentChange = ''
-        if (previousContent && newContent) {
-            const savedContent = await executeWithRetry(() => client.getTemplateContent(id))
-                .then((result) => result.content)
-                .catch(() => undefined)
-            contentChange = savedContent
-                ? ` Content: ${describeContentChange(previousContent, savedContent)}.`
-                : ' The content was saved, but could not be read back to compare.'
+        if (newContent) {
+            const savedContent = await readContent(client, id, 'after')
+            if (!savedContent) {
+                contentChange = ' The content was saved, but could not be read back to compare.'
+            } else {
+                contentChange = previousContent
+                    ? ` Content: ${describeContentChange(previousContent, savedContent)}.`
+                    : ' The previous content could not be read, so the change is not reported.'
+                const dropped = describeDroppedContent(newContent, savedContent)
+                if (dropped) {
+                    contentChange += ` Not everything sent was kept: ${dropped}.`
+                }
+            }
         }
 
         return {
@@ -163,5 +169,24 @@ const updateTemplate = {
         }
     },
 } satisfies TodoistTool<typeof ArgsSchema, typeof OutputSchema>
+
+/**
+ * Reads a template's content for the reply, or undefined when it can't. Its errors are
+ * caught, so the registrar never retries it: retry here.
+ */
+async function readContent(
+    client: TodoistApi,
+    id: string,
+    when: 'before' | 'after',
+): Promise<TemplateContent | undefined> {
+    try {
+        return (await executeWithRetry(() => client.getTemplateContent(id))).content
+    } catch (error) {
+        console.error(`${ToolNames.UPDATE_TEMPLATE}: could not read the content ${when} saving`, {
+            error: formatBatchItemError(error),
+        })
+        return undefined
+    }
+}
 
 export { updateTemplate }
