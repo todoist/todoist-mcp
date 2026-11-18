@@ -1,6 +1,8 @@
 import type { Template } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
+import { ApiLimits } from '../utils/constants.js'
+import { TemplateOriginFields } from '../utils/output-schemas.js'
 import { executeWithRetry } from '../utils/retry.js'
 import { ToolNames } from '../utils/tool-names.js'
 
@@ -23,7 +25,13 @@ const ArgsSchema = {
         .string()
         .optional()
         .describe('Language of gallery template content, e.g. "de". Defaults to "en".'),
-    limit: z.number().int().min(1).max(50).optional().describe('Defaults to 20.'),
+    limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(ApiLimits.TEMPLATES_MAX)
+        .optional()
+        .describe(`Defaults to ${ApiLimits.TEMPLATES_DEFAULT}.`),
     cursor: z.string().optional().describe("A previous result's `nextCursor`, for the next page."),
 }
 
@@ -33,13 +41,7 @@ const OutputSchema = {
             templateId: z.string(),
             name: z.string(),
             description: z.string(),
-            source: z
-                .enum(['todoist', 'user'])
-                .describe('todoist for gallery templates, user for saved ones.'),
-            workspaceId: z
-                .string()
-                .optional()
-                .describe('Absent for personal and gallery templates.'),
+            ...TemplateOriginFields,
         }),
     ),
     nextCursor: z.string().optional().describe('Absent on the last page.'),
@@ -48,11 +50,14 @@ const OutputSchema = {
 const findTemplates = {
     name: ToolNames.FIND_TEMPLATES,
     description:
-        "Search the Todoist template gallery and the user's personal and workspace templates, to find a template's ID for add-projects, fetch-object or update-template.",
+        "Search the Todoist template gallery and the user's personal and workspace templates, to find a template's ID for add-projects, import-project-template, fetch-object or update-template.",
     parameters: ArgsSchema,
     outputSchema: OutputSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-    async execute({ query, source = 'all', locale, limit = 20, cursor }, client) {
+    async execute(
+        { query, source = 'all', locale, limit = ApiLimits.TEMPLATES_DEFAULT, cursor },
+        client,
+    ) {
         const { results, nextCursor } = await executeWithRetry(() =>
             client.getTemplates({
                 query,

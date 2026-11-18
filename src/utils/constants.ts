@@ -27,6 +27,10 @@ export const ApiLimits = {
     PROJECTS_DEFAULT: 50,
     /** Maximum limit for project listings */
     PROJECTS_MAX: 200,
+    /** Default limit for template listings */
+    TEMPLATES_DEFAULT: 20,
+    /** Maximum limit for template listings */
+    TEMPLATES_MAX: 50,
     /** Maximum limit for section listings */
     SECTIONS_MAX: 200,
     /** Page size for reading a workspace's folders */

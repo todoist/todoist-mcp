@@ -15,6 +15,7 @@ import {
     ProjectSchema,
     SectionSchema,
     TaskSchema,
+    TemplateOriginFields,
     toSectionSummary,
 } from '../utils/output-schemas.js'
 import { outlineTemplateContent, toToolTemplateContent } from '../utils/template-content.js'
@@ -44,10 +45,7 @@ const TemplateSchema = z.object({
     name: z.string(),
     description: z.string(),
     color: ColorOutputSchema,
-    source: z
-        .enum(['todoist', 'user'])
-        .describe('todoist for gallery templates, user for saved ones.'),
-    workspaceId: z.string().optional().describe('Absent for personal and gallery templates.'),
+    ...TemplateOriginFields,
     sharedWithWorkspaceMembers: z.boolean().optional(),
     canEdit: z.boolean().optional().describe('Whether update-template can change it.'),
     // Declared loosely to keep the tool surface small; update-template's `content` input
