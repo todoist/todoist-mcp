@@ -195,6 +195,14 @@ const FailureSchema = z.object({
     code: z.string().optional(),
 })
 
+/** Where a template comes from, for the tools that return templates. */
+const TemplateOriginFields = {
+    source: z
+        .enum(['todoist', 'user'])
+        .describe('todoist for gallery templates, user for saved ones.'),
+    workspaceId: z.string().optional().describe('Absent for personal and gallery templates.'),
+}
+
 export {
     ActivityEventSchema,
     CollaboratorSchema,
@@ -209,5 +217,6 @@ export {
     type SectionSummary,
     TaskSchema,
     toFolderSummary,
+    TemplateOriginFields,
     toSectionSummary,
 }

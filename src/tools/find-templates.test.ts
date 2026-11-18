@@ -1,5 +1,6 @@
 import type { Template, TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { createMockTemplate } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { findTemplates } from './find-templates.js'
 
@@ -9,28 +10,19 @@ const mockTodoistApi = {
 
 const { FIND_TEMPLATES } = ToolNames
 
+// A gallery template, unlike createMockTemplate's saved one.
 function createTemplate(overrides: Partial<Template> = {}): Template {
-    return {
+    return createMockTemplate({
         id: 'product-launch',
         name: 'Product launch',
-        templateType: 'project',
         templateSource: 'todoist',
         shortDescription: 'Plan a launch from start to finish',
         longDescription: 'A longer description that the list leaves out.',
-        instructions: null,
-        thumbnailImage: null,
-        thumbnailImageDark: null,
-        coverImage: null,
-        previewImage: null,
         templateColor: null,
-        backgroundColor: null,
-        backgroundColorDark: null,
         creator: null,
-        seo: null,
-        moreResources: [],
-        categoryIds: [],
+        workspaceId: null,
         ...overrides,
-    }
+    })
 }
 
 describe(`${FIND_TEMPLATES} tool`, () => {
