@@ -107,20 +107,22 @@ const importIntoProject = {
             )
         }
 
-        const result = templateId
-            ? await client.importTemplateFromId({
-                  projectId,
-                  templateId: extractTemplateId(templateId),
-                  locale,
-              })
-            : await client.importCsvIntoProject({
-                  projectId,
-                  // The SDK treats strings as filesystem paths, not file content.
-                  file: new Blob([csvFileContent ?? ''], { type: 'text/csv' }),
-                  fileName: 'template.csv',
-              })
+        if (templateId) {
+            const result = await client.importTemplateFromId({
+                projectId,
+                templateId: extractTemplateId(templateId),
+                locale,
+            })
+            return toProjectImportResult({ projectId, source: 'template', result })
+        }
 
-        return toProjectImportResult({ projectId, source: templateId ? 'template' : 'CSV', result })
+        const result = await client.importCsvIntoProject({
+            projectId,
+            // The SDK treats strings as filesystem paths, not file content.
+            file: new Blob([csvFileContent ?? ''], { type: 'text/csv' }),
+            fileName: 'template.csv',
+        })
+        return toProjectImportResult({ projectId, source: 'CSV', result })
     },
 } satisfies TodoistTool<typeof ArgsSchema, typeof OutputSchema>
 
