@@ -9,7 +9,7 @@ import {
     getTaskChildren,
     resolveChildren,
 } from '../utils/children.js'
-import { ColorKeySchema, ColorOutputSchema } from '../utils/colors.js'
+import { ColorOutputSchema } from '../utils/colors.js'
 import {
     CommentSchema,
     ProjectSchema,
@@ -163,7 +163,7 @@ const fetchObject = {
                                 id: template.id,
                                 name: template.name,
                                 description: template.longDescription,
-                                color: ColorKeySchema.safeParse(template.templateColor).data,
+                                color: ColorOutputSchema.parse(template.templateColor),
                                 source: template.templateSource,
                                 workspaceId: template.workspaceId ?? undefined,
                                 sharedWithWorkspaceMembers: template.sharedWithWorkspaceMembers,

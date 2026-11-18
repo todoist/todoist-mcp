@@ -110,13 +110,18 @@ const updateTemplate = {
 
         // Read the current content first, so the reply can show what the new content changes.
         const newContent = content ? toSdkTemplateContent(content) : undefined
-        const previousContent = newContent
-            ? (await executeWithRetry(() => client.getTemplateContent(id))).content
-            : undefined
-
-        const workspaceId = workspace
-            ? (await workspaceResolver.resolveWorkspace(client, workspace)).workspaceId
-            : undefined
+        const [previousContent, workspaceId] = await Promise.all([
+            newContent
+                ? executeWithRetry(() => client.getTemplateContent(id)).then(
+                      (result) => result.content,
+                  )
+                : undefined,
+            workspace
+                ? workspaceResolver
+                      .resolveWorkspace(client, workspace)
+                      .then((resolved) => resolved.workspaceId)
+                : undefined,
+        ])
 
         const template = await client.updateTemplate(id, {
             name,
@@ -135,13 +140,16 @@ const updateTemplate = {
             : ' It is a personal template.'
 
         // Compare against what the backend stored: it can drop assignees who are not workspace
-        // members. If the read fails, the content that was sent is the next best comparison.
+        // members. If that read fails, say so rather than compare against what was sent. Don't
+        // throw: the registrar would retry the whole call and save the content a second time.
         let contentChange = ''
         if (previousContent && newContent) {
             const savedContent = await executeWithRetry(() => client.getTemplateContent(id))
                 .then((result) => result.content)
-                .catch(() => newContent)
-            contentChange = ` Content: ${describeContentChange(previousContent, savedContent)}.`
+                .catch(() => undefined)
+            contentChange = savedContent
+                ? ` Content: ${describeContentChange(previousContent, savedContent)}.`
+                : ' The content was saved, but could not be read back to compare.'
         }
 
         return {
