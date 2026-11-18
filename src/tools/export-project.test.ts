@@ -38,10 +38,11 @@ describe(`${EXPORT_PROJECT} tool`, () => {
     })
 
     it('never creates a shareable link', async () => {
-        mockTodoistApi.exportProjectAsCsv.mockResolvedValue(`${CSV_HEADER}\ntask,Buy milk,,4`)
+        const csv = `${CSV_HEADER}\ntask,Buy milk,,4`
+        mockTodoistApi.exportProjectAsCsv.mockResolvedValue(csv)
 
         // A caller still sending the old tool's `format: "url"` gets the CSV, not a public link.
-        await exportProject.execute(
+        const result = await exportProject.execute(
             { projectId: TEST_IDS.PROJECT_TEST, format: 'url' } as Parameters<
                 typeof exportProject.execute
             >[0],
@@ -50,6 +51,7 @@ describe(`${EXPORT_PROJECT} tool`, () => {
 
         expect(mockTodoistApi.exportTemplateAsUrl).not.toHaveBeenCalled()
         expect(mockTodoistApi.exportProjectAsCsv).toHaveBeenCalledTimes(1)
+        expect(result.structuredContent).toEqual({ content: csv, lineCount: 2 })
     })
 
     it('previews only the first rows of a long export', async () => {
