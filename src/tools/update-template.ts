@@ -74,7 +74,9 @@ const updateTemplate = {
                 (value) => value === undefined,
             )
         ) {
-            throw new Error('Nothing to update. Provide at least one field to change.')
+            throw new Error(
+                'Nothing to update. Provide at least one field to change. An unrecognized color is ignored, so pass one of the listed colors.',
+            )
         }
 
         const workspaceId = workspace
