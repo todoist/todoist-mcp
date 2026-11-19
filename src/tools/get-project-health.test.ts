@@ -198,6 +198,46 @@ describe('get-project-health tool', () => {
         }
     })
 
+    it.each([
+        ['2026-04-07', '2026-04-08T02:00:00Z', 1],
+        ['2026-04-08', '2026-04-08T02:00:00Z', 0],
+        ['2026-04-07T21:00:00', '2026-04-08T02:00:00Z', 1],
+        ['2026-04-07T21:00:00-07:00', '2026-04-08T02:00:00Z', 0],
+        ['2026-04-08T02:00:00Z', '2026-04-08T02:00:00Z', 0],
+        ['2026-04-08', '2026-04-08T23:59:59.001Z', 1],
+    ] as const)(
+        'counts a task due %s at %s as %i overdue in Project Health',
+        async (due, now, overdue) => {
+            vi.useFakeTimers()
+            vi.setSystemTime(new Date(now))
+            try {
+                mockTodoistApi.getProject.mockResolvedValue(createMockWorkspaceProject())
+                mockTodoistApi.getProjectProgress.mockResolvedValue(
+                    createMockProgress({ activeCount: 1, completedCount: 0 }),
+                )
+                mockTodoistApi.getProjectHealth.mockResolvedValue(createMockHealth())
+                mockTodoistApi.getTasks.mockResolvedValue({
+                    results: [
+                        createMockTask({ due: { date: due, string: due, isRecurring: false } }),
+                    ],
+                    nextCursor: null,
+                })
+                mockTodoistApi.getCompletedTasksByCompletionDate.mockResolvedValue({
+                    items: [],
+                    nextCursor: null,
+                })
+
+                const result = await getProjectHealth.execute(
+                    { projectId: 'proj-123', includeContext: true },
+                    mockTodoistApi,
+                )
+                expect(result.structuredContent.context?.projectMetrics.overdueTasks).toBe(overdue)
+            } finally {
+                vi.useRealTimers()
+            }
+        },
+    )
+
     it('includes the lifetime average when the window contains every completed task', async () => {
         mockTodoistApi.getProject.mockResolvedValue(
             createMockWorkspaceProject({ name: 'My Named Project' }),

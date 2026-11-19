@@ -75,7 +75,9 @@ const OutputSchema = {
                 .object({
                     totalTasks: z.number().describe('Total number of tasks in the project.'),
                     completedTasks: z.number().describe('Number of completed tasks.'),
-                    overdueTasks: z.number().describe('Number of overdue tasks.'),
+                    overdueTasks: z
+                        .number()
+                        .describe('Overdue tasks (UTC for floating dates and times).'),
                     tasksCreatedThisWeek: z
                         .number()
                         .describe('Tasks created in the last seven days.'),
@@ -90,7 +92,7 @@ const OutputSchema = {
                         ),
                 })
                 .describe('Aggregated project metrics.'),
-            tasks: z.array(TaskContextOutputSchema).describe('Tasks in the project.'),
+            tasks: z.array(TaskContextOutputSchema).describe('Active project tasks.'),
         })
         .optional()
         .describe(
@@ -108,7 +110,7 @@ const DAY_MS = 24 * ONE_HOUR_MS
 
 function isOverdue(due: string, now: Date): boolean {
     // The health report evaluates floating times in UTC and all-day tasks at day's end.
-    if (due.length === 10) return due < now.toISOString().slice(0, 10)
+    if (due.length === 10) return Date.parse(`${due}T23:59:59Z`) < now.getTime()
     const instant = /(?:Z|[+-]\d{2}:\d{2})$/i.test(due) ? due : `${due}Z`
     return Date.parse(instant) < now.getTime()
 }
