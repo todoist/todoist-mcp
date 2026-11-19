@@ -1,3 +1,5 @@
+import { Client, InMemoryTransport } from '@modelcontextprotocol/client'
+import { McpServer } from '@modelcontextprotocol/server'
 import {
     HEALTH_STATUSES,
     type ProjectHealth,
@@ -5,6 +7,7 @@ import {
     type TodoistApi,
 } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { registerTools } from '../mcp-helpers.js'
 import { TEST_ERRORS } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { getProjectHealth } from './get-project-health.js'
@@ -42,6 +45,29 @@ function createMockHealth(overrides: Partial<ProjectHealth> = {}): ProjectHealth
 describe('get-project-health tool', () => {
     beforeEach(() => {
         vi.clearAllMocks()
+    })
+
+    it('ignores the removed includeContext argument from clients on the old schema', async () => {
+        mockTodoistApi.getProjectProgress.mockResolvedValue(createMockProgress())
+        mockTodoistApi.getProjectHealth.mockResolvedValue(createMockHealth())
+        const server = new McpServer({ name: 'test', version: '0.0.0' })
+        registerTools({ tools: [getProjectHealth], server, client: mockTodoistApi })
+        const client = new Client({ name: 'test-client', version: '0.0.0' })
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+        await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
+        try {
+            const result = await client.callTool({
+                name: GET_PROJECT_HEALTH,
+                arguments: { projectId: 'proj-123', includeContext: true },
+            })
+
+            expect(result.isError).toBeFalsy()
+            expect(result.structuredContent).toMatchObject({ health: { status: 'ON_TRACK' } })
+            expect(result.structuredContent).not.toHaveProperty('context')
+        } finally {
+            await client.close()
+            await server.close()
+        }
     })
 
     it('should have correct tool metadata', () => {
