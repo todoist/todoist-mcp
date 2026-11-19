@@ -1,12 +1,11 @@
 import {
     HEALTH_STATUSES,
     type ProjectHealth,
-    type ProjectHealthContext,
     type ProjectProgress,
     type TodoistApi,
 } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
-import { TEST_ERRORS } from '../utils/test-helpers.js'
+import { createMockTask, createMockWorkspaceProject, TEST_ERRORS } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { getProjectHealth } from './get-project-health.js'
 
@@ -14,6 +13,9 @@ const mockTodoistApi = {
     getProjectProgress: vi.fn(),
     getProjectHealth: vi.fn(),
     getProjectHealthContext: vi.fn(),
+    getProject: vi.fn(),
+    getTasks: vi.fn(),
+    getCompletedTasksByCompletionDate: vi.fn(),
 } as unknown as Mocked<TodoistApi>
 
 const { GET_PROJECT_HEALTH } = ToolNames
@@ -37,53 +39,6 @@ function createMockHealth(overrides: Partial<ProjectHealth> = {}): ProjectHealth
         updatedAt: new Date('2026-03-28T10:00:00Z'),
         isStale: false,
         updateInProgress: false,
-        ...overrides,
-    }
-}
-
-function createMockHealthContext(
-    overrides: Partial<ProjectHealthContext> = {},
-): ProjectHealthContext {
-    return {
-        projectId: 'proj-123',
-        projectName: 'Test Project',
-        projectDescription: 'A test project for health checks',
-        projectMetrics: {
-            totalTasks: 25,
-            completedTasks: 15,
-            overdueTasks: 3,
-            tasksCreatedThisWeek: 5,
-            tasksCompletedThisWeek: 4,
-            averageCompletionTime: 2.5,
-        },
-        tasks: [
-            {
-                id: 'task-1',
-                content: 'Fix the login bug',
-                priority: '1',
-                due: '2026-03-30',
-                deadline: null,
-                isCompleted: false,
-                createdAt: new Date('2026-03-25T10:00:00Z'),
-                updatedAt: new Date('2026-03-27T10:00:00Z'),
-                completedAt: null,
-                completedByUid: null,
-                labels: ['bug'],
-            },
-            {
-                id: 'task-2',
-                content: 'Write documentation',
-                priority: '3',
-                due: null,
-                deadline: null,
-                isCompleted: true,
-                createdAt: new Date('2026-03-20T10:00:00Z'),
-                updatedAt: new Date('2026-03-26T10:00:00Z'),
-                completedAt: new Date('2026-03-26T10:00:00Z'),
-                completedByUid: 'user-1',
-                labels: [],
-            },
-        ],
         ...overrides,
     }
 }
@@ -116,7 +71,9 @@ describe('get-project-health tool', () => {
 
         expect(mockTodoistApi.getProjectProgress).toHaveBeenCalledWith('proj-123')
         expect(mockTodoistApi.getProjectHealth).toHaveBeenCalledWith('proj-123')
-        expect(mockTodoistApi.getProjectHealthContext).not.toHaveBeenCalled()
+        expect(mockTodoistApi.getProject).not.toHaveBeenCalled()
+        expect(mockTodoistApi.getTasks).not.toHaveBeenCalled()
+        expect(mockTodoistApi.getCompletedTasksByCompletionDate).not.toHaveBeenCalled()
 
         expect(result.structuredContent).toMatchObject({
             projectId: 'proj-123',
@@ -137,66 +94,145 @@ describe('get-project-health tool', () => {
         expect(structured.context).toBeUndefined()
     })
 
-    it('should include context when includeContext is true', async () => {
-        const mockProgress = createMockProgress()
-        const mockHealth = createMockHealth()
-        const mockContext = createMockHealthContext()
+    it('returns task context from paginated project data when the old health-context route is gone', async () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(new Date('2026-04-08T12:00:00Z'))
+        try {
+            mockTodoistApi.getProjectHealthContext.mockRejectedValue(
+                new Error('HTTP 404: Not found'),
+            )
+            mockTodoistApi.getProjectProgress.mockResolvedValue(
+                createMockProgress({ activeCount: 2, completedCount: 3 }),
+            )
+            mockTodoistApi.getProjectHealth.mockResolvedValue(createMockHealth())
+            mockTodoistApi.getProject.mockResolvedValue(
+                createMockWorkspaceProject({
+                    id: 'proj-123',
+                    name: 'Launch',
+                    description: 'Launch checklist',
+                }),
+            )
+            const first = createMockTask({
+                id: 'first',
+                content: 'Review outline',
+                priority: 'p1',
+                labels: ['team'],
+                addedAt: new Date('2026-04-01T12:00:00Z'),
+                due: { date: '2026-04-08', string: 'today', isRecurring: false },
+                deadline: { date: '2026-04-10', lang: 'en' },
+            })
+            const second = createMockTask({
+                id: 'second',
+                addedAt: new Date('2026-04-01T11:59:59Z'),
+                due: { date: '2026-04-08T11:59:00', string: 'at 11:59', isRecurring: false },
+            })
+            mockTodoistApi.getTasks
+                .mockResolvedValueOnce({ results: [first], nextCursor: 'active-page' })
+                .mockResolvedValueOnce({ results: [second], nextCursor: null })
+            const completed = createMockTask({
+                id: 'done',
+                checked: true,
+                addedAt: new Date('2026-04-03T12:00:00Z'),
+                completedAt: new Date('2026-04-04T12:00:00Z'),
+            })
+            mockTodoistApi.getCompletedTasksByCompletionDate
+                .mockResolvedValueOnce({ items: [completed], nextCursor: 'completed-page' })
+                .mockResolvedValueOnce({
+                    items: [
+                        completed,
+                        { ...first, checked: true, completedAt: new Date('2026-04-08T09:00:00Z') },
+                    ],
+                    nextCursor: null,
+                })
 
-        mockTodoistApi.getProjectProgress.mockResolvedValue(mockProgress)
-        mockTodoistApi.getProjectHealth.mockResolvedValue(mockHealth)
-        mockTodoistApi.getProjectHealthContext.mockResolvedValue(mockContext)
+            const result = await getProjectHealth.execute(
+                { projectId: 'proj-123', includeContext: true },
+                mockTodoistApi,
+            )
 
-        const result = await getProjectHealth.execute(
-            { projectId: 'proj-123', includeContext: true },
-            mockTodoistApi,
-        )
-
-        expect(mockTodoistApi.getProjectHealthContext).toHaveBeenCalledWith('proj-123')
-
-        const structured = result.structuredContent as Record<string, unknown>
-        expect(structured).toHaveProperty('context')
-
-        const context = structured.context as Record<string, unknown>
-        expect(context).toMatchObject({
-            projectDescription: 'A test project for health checks',
-            projectMetrics: {
-                totalTasks: 25,
-                completedTasks: 15,
-                overdueTasks: 3,
-                tasksCreatedThisWeek: 5,
-                tasksCompletedThisWeek: 4,
-                averageCompletionTime: 2.5,
-            },
-        })
-
-        const tasks = context.tasks as Array<Record<string, unknown>>
-        expect(tasks).toHaveLength(2)
-        expect(tasks[0]).toMatchObject({
-            id: 'task-1',
-            content: 'Fix the login bug',
-            priority: '1',
-            due: '2026-03-30',
-            isCompleted: false,
-            labels: ['bug'],
-        })
+            expect(mockTodoistApi.getProjectHealthContext).not.toHaveBeenCalled()
+            expect(mockTodoistApi.getTasks).toHaveBeenLastCalledWith(
+                expect.objectContaining({ projectId: 'proj-123', cursor: 'active-page' }),
+            )
+            expect(mockTodoistApi.getCompletedTasksByCompletionDate).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    projectId: 'proj-123',
+                    since: '2026-04-01T12:00:00.000Z',
+                    until: '2026-04-08T12:00:00.000Z',
+                    cursor: 'completed-page',
+                }),
+            )
+            expect(result.structuredContent).toMatchObject({
+                projectName: 'Launch',
+                health: { status: 'ON_TRACK' },
+                context: {
+                    projectDescription: 'Launch checklist',
+                    projectMetrics: {
+                        totalTasks: 5,
+                        completedTasks: 3,
+                        overdueTasks: 1,
+                        tasksCreatedThisWeek: 2,
+                        tasksCompletedThisWeek: 1,
+                    },
+                    tasks: [
+                        {
+                            id: 'first',
+                            content: 'Review outline',
+                            priority: 'P1',
+                            isCompleted: false,
+                            labels: ['team'],
+                            due: '2026-04-08',
+                            deadline: '2026-04-10',
+                        },
+                        { id: 'second', due: '2026-04-08T11:59:00' },
+                    ],
+                },
+            })
+            expect(
+                result.structuredContent.context?.projectMetrics.averageCompletionTime,
+            ).toBeUndefined()
+            expect(result.textContent).toContain('Review outline')
+            expect(result.textContent).not.toContain('Avg Completion Time')
+        } finally {
+            vi.useRealTimers()
+        }
     })
 
-    it('should use project name from context when available', async () => {
-        const mockProgress = createMockProgress()
-        const mockHealth = createMockHealth()
-        const mockContext = createMockHealthContext({ projectName: 'My Named Project' })
-
-        mockTodoistApi.getProjectProgress.mockResolvedValue(mockProgress)
-        mockTodoistApi.getProjectHealth.mockResolvedValue(mockHealth)
-        mockTodoistApi.getProjectHealthContext.mockResolvedValue(mockContext)
-
+    it('includes the lifetime average when the window contains every completed task', async () => {
+        mockTodoistApi.getProject.mockResolvedValue(
+            createMockWorkspaceProject({ name: 'My Named Project' }),
+        )
+        mockTodoistApi.getTasks.mockResolvedValue({ results: [], nextCursor: null })
+        mockTodoistApi.getProjectHealth.mockResolvedValue(createMockHealth())
+        mockTodoistApi.getProjectProgress.mockResolvedValue(
+            createMockProgress({ activeCount: 0, completedCount: 1 }),
+        )
+        const completedAt = new Date()
+        const addedAt = new Date(completedAt.getTime() - 2.5 * 24 * 60 * 60 * 1000)
+        mockTodoistApi.getCompletedTasksByCompletionDate.mockResolvedValue({
+            items: [createMockTask({ checked: true, addedAt, completedAt })],
+            nextCursor: null,
+        })
         const result = await getProjectHealth.execute(
             { projectId: 'proj-123', includeContext: true },
             mockTodoistApi,
         )
-
-        expect(result.structuredContent).toMatchObject({ projectName: 'My Named Project' })
+        expect(result.structuredContent).toMatchObject({
+            projectName: 'My Named Project',
+            context: {
+                projectMetrics: {
+                    totalTasks: 1,
+                    completedTasks: 1,
+                    overdueTasks: 0,
+                    tasksCreatedThisWeek: 1,
+                    tasksCompletedThisWeek: 1,
+                    averageCompletionTime: 2.5,
+                },
+                tasks: [],
+            },
+        })
         expect(result.textContent).toContain('My Named Project')
+        expect(result.textContent).toContain('Avg Completion Time:** 2.5 days')
     })
 
     it('should fall back to project ID when context is not included', async () => {
@@ -261,27 +297,25 @@ describe('get-project-health tool', () => {
         })
     })
 
-    it('should handle null average completion time in context', async () => {
-        const mockContext = createMockHealthContext({
-            projectMetrics: {
-                totalTasks: 5,
-                completedTasks: 0,
-                overdueTasks: 0,
-                tasksCreatedThisWeek: 5,
-                tasksCompletedThisWeek: 0,
-                averageCompletionTime: null,
-            },
+    it('omits average completion time for an empty team project', async () => {
+        mockTodoistApi.getProject.mockResolvedValue(createMockWorkspaceProject())
+        mockTodoistApi.getTasks.mockResolvedValue({ results: [], nextCursor: null })
+        mockTodoistApi.getCompletedTasksByCompletionDate.mockResolvedValue({
+            items: [],
+            nextCursor: null,
         })
-
-        mockTodoistApi.getProjectProgress.mockResolvedValue(createMockProgress())
+        mockTodoistApi.getProjectProgress.mockResolvedValue(
+            createMockProgress({ completedCount: 0, activeCount: 0, progressPercent: 0 }),
+        )
         mockTodoistApi.getProjectHealth.mockResolvedValue(createMockHealth())
-        mockTodoistApi.getProjectHealthContext.mockResolvedValue(mockContext)
 
         const result = await getProjectHealth.execute(
             { projectId: 'proj-123', includeContext: true },
             mockTodoistApi,
         )
-
+        expect(
+            result.structuredContent.context?.projectMetrics.averageCompletionTime,
+        ).toBeUndefined()
         expect(result.textContent).not.toContain('Avg Completion Time')
     })
 

@@ -1,12 +1,18 @@
 import {
     HEALTH_STATUSES,
+    type GetCompletedTasksByCompletionDateArgs,
+    type GetTasksArgs,
+    type GetTasksResponse,
     type ProjectHealth,
-    type ProjectHealthContext,
     type ProjectProgress,
+    type Task,
     type TodoistApi,
 } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
+import { fetchAllPages, getProjectOrExplain } from '../tool-helpers.js'
+import { ApiLimits, ONE_HOUR_MS } from '../utils/constants.js'
+import { convertNumberToPriority } from '../utils/priorities.js'
 import { ToolNames } from '../utils/tool-names.js'
 
 const ArgsSchema = {
@@ -22,7 +28,7 @@ const ArgsSchema = {
 const TaskContextOutputSchema = z.object({
     id: z.string().describe('The task ID.'),
     content: z.string().describe('The task content/title.'),
-    priority: z.string().describe('The task priority (1-4).'),
+    priority: z.string().describe('The task priority (P1-P4).'),
     due: z.string().optional().describe('The due date string, if set.'),
     deadline: z.string().optional().describe('The deadline date string, if set.'),
     isCompleted: z.boolean().describe('Whether the task is completed.'),
@@ -70,14 +76,18 @@ const OutputSchema = {
                     totalTasks: z.number().describe('Total number of tasks in the project.'),
                     completedTasks: z.number().describe('Number of completed tasks.'),
                     overdueTasks: z.number().describe('Number of overdue tasks.'),
-                    tasksCreatedThisWeek: z.number().describe('Tasks created in the current week.'),
+                    tasksCreatedThisWeek: z
+                        .number()
+                        .describe('Tasks created in the last seven days.'),
                     tasksCompletedThisWeek: z
                         .number()
-                        .describe('Tasks completed in the current week.'),
+                        .describe('Tasks completed in the last seven days.'),
                     averageCompletionTime: z
                         .number()
                         .optional()
-                        .describe('Average task completion time in days, if available.'),
+                        .describe(
+                            'Lifetime average in days when all completions fall in the seven-day window.',
+                        ),
                 })
                 .describe('Aggregated project metrics.'),
             tasks: z.array(TaskContextOutputSchema).describe('Tasks in the project.'),
@@ -91,28 +101,81 @@ const OutputSchema = {
 type HealthData = {
     progress: ProjectProgress
     health: ProjectHealth
-    context?: ProjectHealthContext
+    context?: z.infer<typeof OutputSchema.context>
 }
 
-async function fetchHealthData(
-    client: TodoistApi,
-    projectId: string,
-    includeContext: boolean,
-): Promise<HealthData> {
-    if (includeContext) {
-        const [progress, health, context] = await Promise.all([
-            client.getProjectProgress(projectId),
-            client.getProjectHealth(projectId),
-            client.getProjectHealthContext(projectId),
-        ])
-        return { progress, health, context }
-    }
+const DAY_MS = 24 * ONE_HOUR_MS
 
-    const [progress, health] = await Promise.all([
-        client.getProjectProgress(projectId),
-        client.getProjectHealth(projectId),
+function isOverdue(due: string, now: Date): boolean {
+    // The health report evaluates floating times in UTC and all-day tasks at day's end.
+    if (due.length === 10) return due < now.toISOString().slice(0, 10)
+    const instant = /(?:Z|[+-]\d{2}:\d{2})$/i.test(due) ? due : `${due}Z`
+    return Date.parse(instant) < now.getTime()
+}
+
+function lifetimeAverageDays(completed: Task[], totalCompleted: number): number | undefined {
+    // A seven-day sample only gives a lifetime average when it covers every completion.
+    if (completed.length === 0 || completed.length !== totalCompleted) return undefined
+    let elapsed = 0
+    for (const task of completed) {
+        if (!task.addedAt || !task.completedAt) return undefined
+        elapsed += task.completedAt.getTime() - task.addedAt.getTime()
+    }
+    return Number((elapsed / completed.length / DAY_MS).toFixed(2))
+}
+
+async function getTaskContext(client: TodoistApi, projectId: string, progress: ProjectProgress) {
+    const now = new Date()
+    const since = new Date(now.getTime() - 7 * DAY_MS)
+    const [project, active, recent] = await Promise.all([
+        getProjectOrExplain(client, projectId),
+        fetchAllPages<GetTasksArgs, GetTasksResponse, Task>({
+            apiMethod: (args) => client.getTasks(args),
+            args: { projectId },
+            limit: ApiLimits.TASKS_MAX,
+        }),
+        fetchAllPages<GetCompletedTasksByCompletionDateArgs, GetTasksResponse, Task>({
+            apiMethod: async (args) => {
+                const { items, nextCursor } = await client.getCompletedTasksByCompletionDate(args)
+                return { results: items, nextCursor }
+            },
+            args: { projectId, since: since.toISOString(), until: now.toISOString() },
+            limit: ApiLimits.COMPLETED_TASKS_MAX,
+        }),
     ])
-    return { progress, health }
+
+    const tasks = active.map((task) => ({
+        id: task.id,
+        content: task.content,
+        priority: (convertNumberToPriority(task.priority) ?? 'p4').toUpperCase(),
+        due: task.due?.datetime ?? task.due?.date,
+        deadline: task.deadline?.date,
+        isCompleted: task.checked,
+        labels: task.labels,
+    }))
+    // An open recurring or reopened task must not also count as a completed task.
+    const activeIds = new Set(tasks.map((task) => task.id))
+    const completedById = new Map<string, Task>()
+    for (const task of recent) {
+        if (task.checked && !activeIds.has(task.id)) completedById.set(task.id, task)
+    }
+    const completed = [...completedById.values()]
+    const createdThisWeek = (task: Task) =>
+        task.addedAt != null && task.addedAt >= since && task.addedAt <= now
+    const context = {
+        projectDescription: project.description ?? undefined,
+        projectMetrics: {
+            totalTasks: progress.activeCount + progress.completedCount,
+            completedTasks: progress.completedCount,
+            overdueTasks: tasks.filter((task) => task.due && isOverdue(task.due, now)).length,
+            tasksCreatedThisWeek:
+                active.filter(createdThisWeek).length + completed.filter(createdThisWeek).length,
+            tasksCompletedThisWeek: completed.length,
+            averageCompletionTime: lifetimeAverageDays(completed, progress.completedCount),
+        },
+        tasks,
+    }
+    return { projectName: project.name, context }
 }
 
 function generateTextContent(
@@ -157,7 +220,7 @@ function generateTextContent(
         lines.push(`- **Overdue:** ${m.overdueTasks}`)
         lines.push(`- **Created This Week:** ${m.tasksCreatedThisWeek}`)
         lines.push(`- **Completed This Week:** ${m.tasksCompletedThisWeek}`)
-        if (m.averageCompletionTime !== null) {
+        if (m.averageCompletionTime !== undefined) {
             lines.push(`- **Avg Completion Time:** ${m.averageCompletionTime} days`)
         }
 
@@ -191,32 +254,16 @@ const getProjectHealth = {
     async execute(args, client) {
         const { projectId, includeContext } = args
 
-        const data = await fetchHealthData(client, projectId, includeContext)
-
-        // Get project name from context if available, otherwise from health context or progress
-        const projectName = data.context?.projectName ?? `Project ${projectId}`
-
-        const textContent = generateTextContent(projectName, data)
-
-        const context = data.context
-            ? {
-                  projectDescription: data.context.projectDescription ?? undefined,
-                  projectMetrics: {
-                      ...data.context.projectMetrics,
-                      averageCompletionTime:
-                          data.context.projectMetrics.averageCompletionTime ?? undefined,
-                  },
-                  tasks: data.context.tasks.map((task) => ({
-                      id: task.id,
-                      content: task.content,
-                      priority: task.priority,
-                      due: task.due ?? undefined,
-                      deadline: task.deadline ?? undefined,
-                      isCompleted: task.isCompleted,
-                      labels: task.labels,
-                  })),
-              }
+        const [progress, health] = await Promise.all([
+            client.getProjectProgress(projectId),
+            client.getProjectHealth(projectId),
+        ])
+        const detail = includeContext
+            ? await getTaskContext(client, projectId, progress)
             : undefined
+        const projectName = detail?.projectName ?? `Project ${projectId}`
+        const context = detail?.context
+        const textContent = generateTextContent(projectName, { progress, health, context })
 
         return {
             textContent,
@@ -224,17 +271,17 @@ const getProjectHealth = {
                 projectId,
                 projectName,
                 progress: {
-                    completedCount: data.progress.completedCount,
-                    activeCount: data.progress.activeCount,
-                    progressPercent: data.progress.progressPercent,
+                    completedCount: progress.completedCount,
+                    activeCount: progress.activeCount,
+                    progressPercent: progress.progressPercent,
                 },
                 health: {
-                    status: data.health.status,
-                    description: data.health.description ?? undefined,
-                    descriptionSummary: data.health.descriptionSummary ?? undefined,
-                    isStale: data.health.isStale,
-                    updateInProgress: data.health.updateInProgress,
-                    updatedAt: data.health.updatedAt?.toISOString(),
+                    status: health.status,
+                    description: health.description ?? undefined,
+                    descriptionSummary: health.descriptionSummary ?? undefined,
+                    isStale: health.isStale,
+                    updateInProgress: health.updateInProgress,
+                    updatedAt: health.updatedAt?.toISOString(),
                 },
                 context,
             },
