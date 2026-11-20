@@ -103,6 +103,54 @@ const collaboratorsCache = new BoundedTtlCache<ProjectCollaborator[]>(
 // share one. Entries are removed as soon as their fetch settles.
 const inFlightAllCollaborators = new Map<string, Promise<ProjectCollaborator[]>>()
 
+/**
+ * Numeric and alphanumeric IDs, but not obvious user names. A user ID is still
+ * looked up, because callers need the user's real email: Todoist filters such as
+ * `assigned to:` match an email or name, never an ID. An ID that matches nobody
+ * is returned as given, not tried as a name.
+ */
+function isUserIdLike(input: string): boolean {
+    return (
+        /^[0-9]+$/.test(input) ||
+        (/^[a-f0-9-]{8,}$/i.test(input) && input.includes('-')) ||
+        (/^[a-z0-9_]{6,}$/i.test(input) && !/^[a-z]+[\s-]/.test(input) && /[0-9_]/.test(input))
+    )
+}
+
+/**
+ * Finds the collaborator a reference names: an exact ID, then (unless it looks
+ * like an ID) an exact name, an exact email and, with `partial`, a name or email
+ * that contains it. Names and emails match case-insensitively.
+ */
+function findCollaborator(
+    collaborators: ProjectCollaborator[],
+    input: string,
+    { partial }: { partial: boolean },
+): ProjectCollaborator | undefined {
+    const byId = collaborators.find((c) => c.id === input)
+    if (byId || isUserIdLike(input)) {
+        return byId
+    }
+
+    const searchTerm = input.toLowerCase()
+    return (
+        collaborators.find((c) => c.name.toLowerCase() === searchTerm) ??
+        collaborators.find((c) => c.email.toLowerCase() === searchTerm) ??
+        (partial
+            ? (collaborators.find((c) => c.name.toLowerCase().includes(searchTerm)) ??
+              collaborators.find((c) => c.email.toLowerCase().includes(searchTerm)))
+            : undefined)
+    )
+}
+
+function toResolvedUser(collaborator: ProjectCollaborator): ResolvedUser {
+    return {
+        userId: collaborator.id,
+        displayName: collaborator.name,
+        email: collaborator.email,
+    }
+}
+
 /** Keyword that resolves to the current authenticated user. */
 export const SELF_USER_KEYWORD = 'me' as const
 
@@ -135,16 +183,7 @@ export class UserResolver {
             }
         }
 
-        // Numeric and alphanumeric IDs, but not obvious user names. A user ID is
-        // still looked up, because callers need the user's real email: Todoist
-        // filters such as `assigned to:` match an email or name, never an ID. An
-        // ID that matches nobody is returned as given, not tried as a name.
-        const looksLikeUserId =
-            /^[0-9]+$/.test(trimmedInput) ||
-            (/^[a-f0-9-]{8,}$/i.test(trimmedInput) && trimmedInput.includes('-')) ||
-            (/^[a-z0-9_]{6,}$/i.test(trimmedInput) &&
-                !/^[a-z]+[\s-]/.test(trimmedInput) &&
-                /[0-9_]/.test(trimmedInput))
+        const looksLikeUserId = isUserIdLike(trimmedInput)
         const unmatched: ResolvedUser | null = looksLikeUserId
             ? { userId: trimmedInput, displayName: trimmedInput, email: trimmedInput }
             : null
@@ -188,68 +227,37 @@ export class UserResolver {
                 return cacheResult(unmatched)
             }
 
-            const searchTerm = nameOrId.toLowerCase().trim()
-
-            // Try exact ID match first
-            let match = allCollaborators.find((c) => c.id === trimmedInput)
-            if (match) {
-                return cacheResult({
-                    userId: match.id,
-                    displayName: match.name,
-                    email: match.email,
-                })
-            }
-            if (looksLikeUserId) {
-                return cacheResult(unmatched)
-            }
-
-            // Try exact name match
-            match = allCollaborators.find((c) => c.name.toLowerCase() === searchTerm)
-            if (match) {
-                return cacheResult({
-                    userId: match.id,
-                    displayName: match.name,
-                    email: match.email,
-                })
-            }
-
-            // Try exact email match
-            match = allCollaborators.find((c) => c.email.toLowerCase() === searchTerm)
-            if (match) {
-                return cacheResult({
-                    userId: match.id,
-                    displayName: match.name,
-                    email: match.email,
-                })
-            }
-
-            // Try partial name match (contains)
-            match = allCollaborators.find((c) => c.name.toLowerCase().includes(searchTerm))
-            if (match) {
-                return cacheResult({
-                    userId: match.id,
-                    displayName: match.name,
-                    email: match.email,
-                })
-            }
-
-            // Try partial email match
-            match = allCollaborators.find((c) => c.email.toLowerCase().includes(searchTerm))
-            if (match) {
-                return cacheResult({
-                    userId: match.id,
-                    displayName: match.name,
-                    email: match.email,
-                })
-            }
-
-            // No match found
-            return cacheResult(null)
+            const match = findCollaborator(allCollaborators, trimmedInput, { partial: true })
+            return cacheResult(match ? toResolvedUser(match) : unmatched)
         } catch (_error) {
             // If we can't fetch collaborators, a name resolves to nothing rather
             // than a guess, and an ID is returned as given
             return cacheResult(unmatched)
         }
+    }
+
+    /**
+     * Resolves a user among one project's collaborators, matching only an ID, a
+     * full name or an email exactly. Returns null for anything else, including
+     * "me" and partial names, so the caller can fall back to {@link resolveUser}.
+     *
+     * A partial name is left to the account-wide lookup because it prefers an
+     * exact match on any shared project, and a partial match here would hide
+     * that person behind someone with a similar name.
+     */
+    async resolveProjectCollaborator(
+        client: TodoistApi,
+        projectId: string,
+        nameOrId: string,
+    ): Promise<ResolvedUser | null> {
+        const trimmedInput = nameOrId.trim()
+        if (!trimmedInput || trimmedInput.toLowerCase() === SELF_USER_KEYWORD) {
+            return null
+        }
+
+        const collaborators = await this.getProjectCollaborators(client, projectId)
+        const match = findCollaborator(collaborators, trimmedInput, { partial: false })
+        return match ? toResolvedUser(match) : null
     }
 
     /**

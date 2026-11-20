@@ -44,8 +44,14 @@ export class AssignmentValidator {
     ): Promise<ValidationResult> {
         const { taskId, projectId, responsibleUid } = assignment
 
-        // First, resolve the user
-        const resolvedUser = await userResolver.resolveUser(client, responsibleUid)
+        // The assignee has to be a collaborator on this project, so look there first.
+        // The account-wide lookup reads the collaborators of every shared project, one
+        // request each, which a large workspace can't afford on every assigned task.
+        // It still settles anyone not found here, so a person on another project is
+        // told apart from someone nobody knows.
+        const resolvedUser =
+            (await userResolver.resolveProjectCollaborator(client, projectId, responsibleUid)) ??
+            (await userResolver.resolveUser(client, responsibleUid))
         if (!resolvedUser) {
             return {
                 isValid: false,
