@@ -20,24 +20,24 @@ Completed:
     task-3
     task-5.
 Failed (3):
-    task-1 (Error: Task already completed)
-    task-2 (Error: Task not found)
-    task-4 (Error: Permission denied)."
+    task-1 (Error: Task already completed (HTTP 400, code 0))
+    task-2 (Error: Task not found (HTTP 400, code 0))
+    task-4 (Error: Permission denied (HTTP 400, code 0))."
 `;
 
 exports[`complete-tasks tool > completing multiple tasks > should handle all tasks failing 1`] = `
 "Completed tasks: 0/2 successful.
 Failed (2):
-    task-1 (Error: API Error: Network timeout)
-    task-2 (Error: API Error: Network timeout)."
+    task-1 (Error: API Error: Network timeout (HTTP 400, code 0))
+    task-2 (Error: API Error: Network timeout (HTTP 400, code 0))."
 `;
 
 exports[`complete-tasks tool > completing multiple tasks > should handle different types of API errors 1`] = `
 "Completed tasks: 0/4 successful.
 Failed (4):
-    not-found (Error: Task not found)
-    already-done (Error: Task already completed)
-    no-permission (Error: Permission denied), +1 more."
+    not-found (Error: Task not found (HTTP 400, code 0))
+    already-done (Error: Task already completed (HTTP 400, code 0))
+    no-permission (Error: Permission denied (HTTP 400, code 0)), +1 more."
 `;
 
 exports[`complete-tasks tool > completing multiple tasks > should handle partial failures gracefully 1`] = `
@@ -46,7 +46,7 @@ Completed:
     task-1
     task-3.
 Failed (1):
-    task-2 (Error: Task not found)."
+    task-2 (Error: Task not found (HTTP 400, code 0))."
 `;
 
 exports[`complete-tasks tool > edge cases > should handle empty task completion (minimum one task required by schema) 1`] = `
@@ -66,17 +66,17 @@ Completed:
 exports[`complete-tasks tool > error message truncation > should not show truncation message for exactly 3 errors 1`] = `
 "Completed tasks: 0/3 successful.
 Failed (3):
-    task-1 (Error: Error 1)
-    task-2 (Error: Error 2)
-    task-3 (Error: Error 3)."
+    task-1 (Error: Error 1 (HTTP 400, code 0))
+    task-2 (Error: Error 2 (HTTP 400, code 0))
+    task-3 (Error: Error 3 (HTTP 400, code 0))."
 `;
 
 exports[`complete-tasks tool > error message truncation > should truncate failure messages after 3 errors 1`] = `
 "Completed tasks: 0/5 successful.
 Failed (5):
-    task-1 (Error: Error 1)
-    task-2 (Error: Error 2)
-    task-3 (Error: Error 3), +2 more."
+    task-1 (Error: Error 1 (HTTP 400, code 0))
+    task-2 (Error: Error 2 (HTTP 400, code 0))
+    task-3 (Error: Error 3 (HTTP 400, code 0)), +2 more."
 `;
 
 exports[`complete-tasks tool > mixed success and failure scenarios > should handle realistic mixed scenario 1`] = `
@@ -86,15 +86,15 @@ Completed:
     8485093749
     8485093751.
 Failed (2):
-    8485093750 (Error: Task already completed)
-    8485093752 (Error: Task not found)."
+    8485093750 (Error: Task already completed (HTTP 400, code 0))
+    8485093752 (Error: Task not found (HTTP 400, code 0))."
 `;
 
 exports[`complete-tasks tool > next steps logic validation > should suggest checking IDs when all tasks fail 1`] = `
 "Completed tasks: 0/2 successful.
 Failed (2):
-    bad-id-1 (Error: Task not found)
-    bad-id-2 (Error: Task not found)."
+    bad-id-1 (Error: Task not found (HTTP 400, code 0))
+    bad-id-2 (Error: Task not found (HTTP 400, code 0))."
 `;
 
 exports[`complete-tasks tool > next steps logic validation > should suggest overdue tasks when all tasks complete successfully 1`] = `
@@ -109,5 +109,5 @@ exports[`complete-tasks tool > next steps logic validation > should suggest revi
 Completed:
     task-1.
 Failed (1):
-    task-2 (Error: Task not found)."
+    task-2 (Error: Task not found (HTTP 400, code 0))."
 `;

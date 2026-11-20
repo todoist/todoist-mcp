@@ -285,17 +285,61 @@ export function answerTaskCreates(
     createTask: (args: TaskCreateArgs) => Promise<Task>,
 ): void {
     const created = new Map<string, Task>()
+    answerSyncCommands(client, async (command) => {
+        const task = await createTask(command.args as TaskCreateArgs)
+        created.set(task.id, task)
+        return task.id
+    })
+    client.getTasks.mockImplementation(async (args) =>
+        createMockApiResponse((args?.ids ?? []).flatMap((id) => created.get(id) ?? [])),
+    )
+}
 
+/**
+ * Answers `sync` the way the Sync API answers `item_close` commands, and `getTasks`
+ * with every task asked for except those in `missing`, for tools that close tasks
+ * through Sync.
+ *
+ * Each command's task ID goes to `closeTask`, which a test mocks like the REST
+ * close: resolving closes the task, and an error it rejects with becomes that
+ * command's error status.
+ */
+export function answerTaskCloses(
+    client: Mocked<TodoistApi>,
+    closeTask: (id: string) => Promise<unknown>,
+    { missing = [] }: { missing?: string[] } = {},
+): void {
+    answerSyncCommands(client, async (command) => {
+        await closeTask(String(command.args.id))
+        return undefined
+    })
+    client.getTasks.mockImplementation(async (args) =>
+        createMockApiResponse(
+            (args?.ids ?? [])
+                .filter((id) => !missing.includes(id))
+                .map((id) => createMockTask({ id })),
+        ),
+    )
+}
+
+/**
+ * Applies each command a `sync` call carries with `apply`, reporting it as applied
+ * or with the error status the API would give. `apply` returns the ID of anything
+ * it created, which is mapped from the command's `tempId`.
+ */
+function answerSyncCommands(
+    client: Mocked<TodoistApi>,
+    apply: (command: SyncCommand) => Promise<string | undefined>,
+): void {
     client.sync.mockImplementation(async ({ commands = [] }) => {
         const syncStatus: NonNullable<SyncResponse['syncStatus']> = {}
         const tempIdMapping: Record<string, string> = {}
         for (const command of commands) {
             try {
-                const task = await createTask(command.args as TaskCreateArgs)
-                created.set(task.id, task)
+                const id = await apply(command)
                 syncStatus[command.uuid] = 'ok'
-                if (command.tempId) {
-                    tempIdMapping[command.tempId] = task.id
+                if (command.tempId && id) {
+                    tempIdMapping[command.tempId] = id
                 }
             } catch (error) {
                 syncStatus[command.uuid] = toSyncCommandError(error)
@@ -303,10 +347,6 @@ export function answerTaskCreates(
         }
         return { syncStatus, tempIdMapping }
     })
-
-    client.getTasks.mockImplementation(async (args) =>
-        createMockApiResponse((args?.ids ?? []).flatMap((id) => created.get(id) ?? [])),
-    )
 }
 
 function toSyncCommandError(error: unknown): SyncError {

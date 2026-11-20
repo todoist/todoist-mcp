@@ -1,26 +1,31 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
-import { resetLimitersForTesting } from '../utils/concurrency.js'
-import { ConcurrencyLimits } from '../utils/constants.js'
+import { answerTaskCloses, createApiError, createMockTask } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { completeTasks } from './complete-tasks.js'
 
 // Mock the Todoist API
 const mockTodoistApi = {
-    closeTask: vi.fn(),
+    sync: vi.fn(),
+    getTasks: vi.fn(),
+    getTask: vi.fn(),
 } as unknown as Mocked<TodoistApi>
+
+// Answers each task the Sync request closes, like the REST close would
+const closeTask = vi.fn<(id: string) => Promise<unknown>>()
 
 const { COMPLETE_TASKS } = ToolNames
 
 describe(`${COMPLETE_TASKS} tool`, () => {
     beforeEach(() => {
         vi.clearAllMocks()
-        resetLimitersForTesting()
+        closeTask.mockReset()
+        answerTaskCloses(mockTodoistApi, closeTask)
     })
 
     describe('completing multiple tasks', () => {
         it('should complete all tasks successfully', async () => {
-            mockTodoistApi.closeTask.mockResolvedValue(true)
+            closeTask.mockResolvedValue(true)
 
             const result = await completeTasks.execute(
                 { ids: ['task-1', 'task-2', 'task-3'] },
@@ -28,10 +33,10 @@ describe(`${COMPLETE_TASKS} tool`, () => {
             )
 
             // Verify API was called for each task
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledTimes(3)
-            expect(mockTodoistApi.closeTask).toHaveBeenNthCalledWith(1, 'task-1')
-            expect(mockTodoistApi.closeTask).toHaveBeenNthCalledWith(2, 'task-2')
-            expect(mockTodoistApi.closeTask).toHaveBeenNthCalledWith(3, 'task-3')
+            expect(closeTask).toHaveBeenCalledTimes(3)
+            expect(closeTask).toHaveBeenNthCalledWith(1, 'task-1')
+            expect(closeTask).toHaveBeenNthCalledWith(2, 'task-2')
+            expect(closeTask).toHaveBeenNthCalledWith(3, 'task-3')
 
             // Verify result is a concise summary
             expect(result.textContent).toMatchSnapshot()
@@ -48,12 +53,12 @@ describe(`${COMPLETE_TASKS} tool`, () => {
         })
 
         it('should complete single task', async () => {
-            mockTodoistApi.closeTask.mockResolvedValue(true)
+            closeTask.mockResolvedValue(true)
 
             const result = await completeTasks.execute({ ids: ['8485093748'] }, mockTodoistApi)
 
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledTimes(1)
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledWith('8485093748')
+            expect(closeTask).toHaveBeenCalledTimes(1)
+            expect(closeTask).toHaveBeenCalledWith('8485093748')
 
             expect(result.textContent).toMatchSnapshot()
 
@@ -70,7 +75,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
 
         it('should handle partial failures gracefully', async () => {
             // Mock first and third tasks to succeed, second to fail
-            mockTodoistApi.closeTask
+            closeTask
                 .mockResolvedValueOnce(true) // task-1 succeeds
                 .mockRejectedValueOnce(new Error('Task not found')) // task-2 fails
                 .mockResolvedValueOnce(true) // task-3 succeeds
@@ -81,10 +86,10 @@ describe(`${COMPLETE_TASKS} tool`, () => {
             )
 
             // Verify API was called for all tasks despite failure
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledTimes(3)
-            expect(mockTodoistApi.closeTask).toHaveBeenNthCalledWith(1, 'task-1')
-            expect(mockTodoistApi.closeTask).toHaveBeenNthCalledWith(2, 'task-2')
-            expect(mockTodoistApi.closeTask).toHaveBeenNthCalledWith(3, 'task-3')
+            expect(closeTask).toHaveBeenCalledTimes(3)
+            expect(closeTask).toHaveBeenNthCalledWith(1, 'task-1')
+            expect(closeTask).toHaveBeenNthCalledWith(2, 'task-2')
+            expect(closeTask).toHaveBeenNthCalledWith(3, 'task-3')
 
             // Verify only successful completions are reported
             expect(result.textContent).toMatchSnapshot()
@@ -97,7 +102,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
                     failures: [
                         expect.objectContaining({
                             item: 'task-2',
-                            error: 'Task not found',
+                            error: 'Task not found (HTTP 400, code 0)',
                         }),
                     ],
                     totalRequested: 3,
@@ -109,20 +114,20 @@ describe(`${COMPLETE_TASKS} tool`, () => {
 
         it('should handle all tasks failing', async () => {
             const apiError = new Error('API Error: Network timeout')
-            mockTodoistApi.closeTask.mockRejectedValue(apiError)
+            closeTask.mockRejectedValue(apiError)
 
             const result = await completeTasks.execute(
                 { ids: ['task-1', 'task-2'] },
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledTimes(2)
+            expect(closeTask).toHaveBeenCalledTimes(2)
             expect(result.textContent).toMatchSnapshot()
         })
 
         it('should continue processing remaining tasks after failures', async () => {
             // Mock various failure scenarios
-            mockTodoistApi.closeTask
+            closeTask
                 .mockRejectedValueOnce(new Error('Task already completed'))
                 .mockRejectedValueOnce(new Error('Task not found'))
                 .mockResolvedValueOnce(true) // task-3 succeeds
@@ -134,14 +139,14 @@ describe(`${COMPLETE_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledTimes(5)
+            expect(closeTask).toHaveBeenCalledTimes(5)
 
             // Only tasks 3 and 5 should be in completed list
             expect(result.textContent).toMatchSnapshot()
         })
 
         it('should handle different types of API errors', async () => {
-            mockTodoistApi.closeTask
+            closeTask
                 .mockRejectedValueOnce(new Error('Task not found'))
                 .mockRejectedValueOnce(new Error('Task already completed'))
                 .mockRejectedValueOnce(new Error('Permission denied'))
@@ -152,7 +157,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledTimes(4)
+            expect(closeTask).toHaveBeenCalledTimes(4)
 
             // All should fail, but the tool should handle it gracefully
             expect(result.textContent).toMatchSnapshot()
@@ -162,7 +167,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
     describe('mixed success and failure scenarios', () => {
         it('should handle realistic mixed scenario', async () => {
             // Simulate a realistic scenario with some tasks completing and others failing
-            mockTodoistApi.closeTask
+            closeTask
                 .mockResolvedValueOnce(true) // regular task completion
                 .mockResolvedValueOnce(true) // another successful completion
                 .mockRejectedValueOnce(new Error('Task already completed')) // duplicate completion
@@ -182,7 +187,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledTimes(5)
+            expect(closeTask).toHaveBeenCalledTimes(5)
 
             expect(result.textContent).toMatchSnapshot()
         })
@@ -190,7 +195,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
 
     describe('next steps logic validation', () => {
         it('should suggest overdue tasks when all tasks complete successfully', async () => {
-            mockTodoistApi.closeTask.mockResolvedValue(true)
+            closeTask.mockResolvedValue(true)
 
             const result = await completeTasks.execute(
                 { ids: ['task-1', 'task-2'] },
@@ -202,9 +207,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
         })
 
         it('should suggest reviewing failures when mixed results', async () => {
-            mockTodoistApi.closeTask
-                .mockResolvedValueOnce(true)
-                .mockRejectedValueOnce(new Error('Task not found'))
+            closeTask.mockResolvedValueOnce(true).mockRejectedValueOnce(new Error('Task not found'))
 
             const result = await completeTasks.execute(
                 { ids: ['task-1', 'task-2'] },
@@ -216,7 +219,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
         })
 
         it('should suggest checking IDs when all tasks fail', async () => {
-            mockTodoistApi.closeTask.mockRejectedValue(new Error('Task not found'))
+            closeTask.mockRejectedValue(new Error('Task not found'))
 
             const result = await completeTasks.execute(
                 { ids: ['bad-id-1', 'bad-id-2'] },
@@ -230,7 +233,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
 
     describe('error message truncation', () => {
         it('should truncate failure messages after 3 errors', async () => {
-            mockTodoistApi.closeTask
+            closeTask
                 .mockRejectedValueOnce(new Error('Error 1'))
                 .mockRejectedValueOnce(new Error('Error 2'))
                 .mockRejectedValueOnce(new Error('Error 3'))
@@ -250,7 +253,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
         })
 
         it('should not show truncation message for exactly 3 errors', async () => {
-            mockTodoistApi.closeTask
+            closeTask
                 .mockRejectedValueOnce(new Error('Error 1'))
                 .mockRejectedValueOnce(new Error('Error 2'))
                 .mockRejectedValueOnce(new Error('Error 3'))
@@ -266,94 +269,178 @@ describe(`${COMPLETE_TASKS} tool`, () => {
         })
     })
 
-    describe('large batches', () => {
-        it('completes up to the write limit of tasks at once, reporting them in input order', async () => {
-            let active = 0
-            let peak = 0
-            mockTodoistApi.closeTask.mockImplementation(async (id: string) => {
-                active += 1
-                peak = Math.max(peak, active)
-                // Later tasks answer sooner, so the requests finish out of order.
-                const position = Number(id.replace('task-', ''))
-                await new Promise((resolve) => setTimeout(resolve, 2 * (10 - position)))
-                active -= 1
-                return true
-            })
-            const ids = Array.from({ length: 10 }, (_, index) => `task-${index}`)
+    describe('one Sync request per batch', () => {
+        function sentCommands() {
+            return mockTodoistApi.sync.mock.calls.flatMap(([request]) => request.commands ?? [])
+        }
 
-            const result = await completeTasks.execute({ ids }, mockTodoistApi)
+        it('closes the whole batch in one request, in input order', async () => {
+            closeTask.mockResolvedValue(true)
 
-            expect(peak).toBe(ConcurrencyLimits.WRITES)
-            expect(result.structuredContent.completed).toEqual(ids)
-        })
-
-        it('frees its write slot while waiting to retry, so other tasks can start', async () => {
-            vi.useFakeTimers()
-            try {
-                const busy = Object.assign(new Error('Service Unavailable'), {
-                    httpStatusCode: 503,
-                })
-                const turnedAway = new Set(['task-0', 'task-1', 'task-2', 'task-3'])
-                mockTodoistApi.closeTask.mockImplementation(async (id: string) => {
-                    if (turnedAway.delete(id)) throw busy
-                    return true
-                })
-                const ids = ['task-0', 'task-1', 'task-2', 'task-3', 'task-4']
-
-                const promise = completeTasks.execute({ ids }, mockTodoistApi)
-                // Shorter than any retry delay: the first four are still waiting to retry.
-                await vi.advanceTimersByTimeAsync(10)
-
-                expect(mockTodoistApi.closeTask).toHaveBeenCalledWith('task-4')
-
-                await vi.runAllTimersAsync()
-                const result = await promise
-                expect(result.structuredContent.completed).toEqual(ids)
-            } finally {
-                vi.useRealTimers()
-            }
-        })
-
-        it('retries a task the API turned away with a 503', async () => {
-            vi.useFakeTimers()
-            try {
-                mockTodoistApi.closeTask
-                    .mockRejectedValueOnce(
-                        Object.assign(new Error('Service Unavailable'), { httpStatusCode: 503 }),
-                    )
-                    .mockResolvedValueOnce(true)
-
-                const promise = completeTasks.execute({ ids: ['task-1'] }, mockTodoistApi)
-                await vi.runAllTimersAsync()
-                const result = await promise
-
-                expect(mockTodoistApi.closeTask).toHaveBeenCalledTimes(2)
-                expect(result.structuredContent.completed).toEqual(['task-1'])
-                expect(result.structuredContent.failures).toEqual([])
-            } finally {
-                vi.useRealTimers()
-            }
-        })
-
-        it('does not retry a 502, since closing a recurring task twice would skip an occurrence', async () => {
-            mockTodoistApi.closeTask.mockRejectedValueOnce(
-                Object.assign(new Error('Bad Gateway'), { httpStatusCode: 502 }),
+            const result = await completeTasks.execute(
+                { ids: ['task-1', 'task-2', 'task-3'] },
+                mockTodoistApi,
             )
 
-            const result = await completeTasks.execute({ ids: ['task-1'] }, mockTodoistApi)
+            expect(mockTodoistApi.sync).toHaveBeenCalledOnce()
+            expect(sentCommands()).toEqual(
+                ['task-1', 'task-2', 'task-3'].map((id) =>
+                    expect.objectContaining({ type: 'item_close', args: { id } }),
+                ),
+            )
+            expect(result.structuredContent.completed).toEqual(['task-1', 'task-2', 'task-3'])
+        })
 
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledTimes(1)
+        it('reports a task it cannot find as not found instead of sending it', async () => {
+            // item_close answers "ok" for an ID it can't find, so without the read
+            // first a wrong ID would be reported as completed.
+            answerTaskCloses(mockTodoistApi, closeTask.mockResolvedValue(true), {
+                missing: ['wrong-id'],
+            })
+
+            const result = await completeTasks.execute(
+                { ids: ['task-1', 'wrong-id'] },
+                mockTodoistApi,
+            )
+
+            expect(sentCommands().map((command) => command.args)).toEqual([{ id: 'task-1' }])
+            expect(result.structuredContent.completed).toEqual(['task-1'])
             expect(result.structuredContent.failures).toEqual([
-                { item: 'task-1', error: 'Bad Gateway (HTTP 502)' },
+                {
+                    item: 'wrong-id',
+                    error: 'Task not found, or already completed. Check the ID with find-tasks.',
+                },
             ])
         })
+
+        it('closes a task listed twice only once, so a recurring task does not skip ahead', async () => {
+            closeTask.mockResolvedValue(true)
+
+            const result = await completeTasks.execute(
+                { ids: ['task-1', 'task-1'] },
+                mockTodoistApi,
+            )
+
+            expect(closeTask).toHaveBeenCalledOnce()
+            expect(result.structuredContent.completed).toEqual(['task-1', 'task-1'])
+        })
+
+        it('sends nothing when none of the tasks can be found', async () => {
+            answerTaskCloses(mockTodoistApi, closeTask, { missing: ['gone-1', 'gone-2'] })
+
+            const result = await completeTasks.execute(
+                { ids: ['gone-1', 'gone-2'] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.sync).not.toHaveBeenCalled()
+            expect(result.structuredContent.failureCount).toBe(2)
+        })
+
+        it('still closes the other tasks when one ID is malformed', async () => {
+            // The API refuses a whole getTasks({ ids }) over one malformed ID, as the
+            // real API showed, so the tasks are then read one at a time.
+            closeTask.mockResolvedValue(true)
+            const malformed = createApiError({
+                status: 400,
+                error: 'Invalid argument value',
+                tag: 'INVALID_ARGUMENT_VALUE',
+            })
+            mockTodoistApi.getTasks.mockRejectedValueOnce(malformed)
+            mockTodoistApi.getTask.mockImplementation(async (id: string) => {
+                if (id === 'not-an-id') throw malformed
+                return createMockTask({ id })
+            })
+
+            const result = await completeTasks.execute(
+                { ids: ['task-1', 'not-an-id', 'task-2'] },
+                mockTodoistApi,
+            )
+
+            expect(sentCommands().map((command) => command.args)).toEqual([
+                { id: 'task-1' },
+                { id: 'task-2' },
+            ])
+            expect(result.structuredContent.completed).toEqual(['task-1', 'task-2'])
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'not-an-id',
+                    error: 'Invalid argument value (HTTP 400, tag INVALID_ARGUMENT_VALUE)',
+                },
+            ])
+        })
+
+        it('does not close a task again when it is already completed', async () => {
+            mockTodoistApi.getTasks.mockRejectedValueOnce(
+                createApiError({ status: 400, error: 'Invalid argument value' }),
+            )
+            mockTodoistApi.getTask.mockImplementation(async (id: string) =>
+                createMockTask({ id, checked: id === 'done-1' }),
+            )
+            closeTask.mockResolvedValue(true)
+
+            const result = await completeTasks.execute(
+                { ids: ['done-1', 'task-1'] },
+                mockTodoistApi,
+            )
+
+            expect(sentCommands().map((command) => command.args)).toEqual([{ id: 'task-1' }])
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'done-1',
+                    error: 'Task not found, or already completed. Check the ID with find-tasks.',
+                },
+            ])
+        })
+
+        it('reports every task when the tasks cannot be read', async () => {
+            mockTodoistApi.getTasks.mockRejectedValue(
+                createApiError({ status: 403, error: 'Forbidden' }),
+            )
+
+            const result = await completeTasks.execute(
+                { ids: ['task-1', 'task-2'] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.sync).not.toHaveBeenCalled()
+            expect(result.structuredContent.failures.map((failure) => failure.item)).toEqual([
+                'task-1',
+                'task-2',
+            ])
+        })
+
+        it.each([502, 503, 504])(
+            'retries the request after a %i, since Todoist skips commands it already applied',
+            async (status) => {
+                vi.useFakeTimers()
+                try {
+                    closeTask.mockResolvedValue(true)
+                    mockTodoistApi.sync.mockRejectedValueOnce(
+                        Object.assign(new Error('Gateway trouble'), { httpStatusCode: status }),
+                    )
+
+                    const promise = completeTasks.execute({ ids: ['task-1'] }, mockTodoistApi)
+                    await vi.runAllTimersAsync()
+                    const result = await promise
+
+                    expect(mockTodoistApi.sync).toHaveBeenCalledTimes(2)
+                    // The retry carries the same command, so Todoist applies it once.
+                    const [first, second] = mockTodoistApi.sync.mock.calls
+                    expect(second?.[0].commands?.[0]?.uuid).toBe(first?.[0].commands?.[0]?.uuid)
+                    expect(result.structuredContent.completed).toEqual(['task-1'])
+                } finally {
+                    vi.useRealTimers()
+                }
+            },
+        )
     })
 
     describe('edge cases', () => {
         it('should handle empty task completion (minimum one task required by schema)', async () => {
             // Note: This test documents that the schema requires at least one task,
             // so this scenario shouldn't occur in practice due to validation
-            mockTodoistApi.closeTask.mockResolvedValue(true)
+            closeTask.mockResolvedValue(true)
 
             const result = await completeTasks.execute({ ids: ['single-task'] }, mockTodoistApi)
 
@@ -361,17 +448,17 @@ describe(`${COMPLETE_TASKS} tool`, () => {
         })
 
         it('should handle tasks with special ID formats', async () => {
-            mockTodoistApi.closeTask.mockResolvedValue(true)
+            closeTask.mockResolvedValue(true)
 
             const result = await completeTasks.execute(
                 { ids: ['proj_123_task_456', 'task-with-dashes', '1234567890'] },
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledTimes(3)
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledWith('proj_123_task_456')
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledWith('task-with-dashes')
-            expect(mockTodoistApi.closeTask).toHaveBeenCalledWith('1234567890')
+            expect(closeTask).toHaveBeenCalledTimes(3)
+            expect(closeTask).toHaveBeenCalledWith('proj_123_task_456')
+            expect(closeTask).toHaveBeenCalledWith('task-with-dashes')
+            expect(closeTask).toHaveBeenCalledWith('1234567890')
 
             expect(result.textContent).toMatchSnapshot()
         })

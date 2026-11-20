@@ -1,6 +1,7 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import {
+    answerTaskCloses,
     answerTaskCreates,
     createMockProject,
     createMockTask,
@@ -42,7 +43,7 @@ const cases = [
         of: 1,
         item: TEST_IDS.TASK_1,
         run: (client: Mocked<TodoistApi>) => {
-            client.closeTask.mockRejectedValue(apiError)
+            answerTaskCloses(client, vi.fn().mockRejectedValue(apiError))
             return completeTasks.execute({ ids: [TEST_IDS.TASK_1] }, client)
         },
     },

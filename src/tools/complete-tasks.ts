@@ -1,11 +1,13 @@
+import { randomUUID } from 'node:crypto'
+import type { SyncCommand, TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
-import { getWriteLimiter } from '../utils/concurrency.js'
 import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema } from '../utils/output-schemas.js'
 import { summarizeBatch } from '../utils/response-builders.js'
-import { executeCreateWithRetry } from '../utils/retry.js'
+import { executeWithRetry, extractHttpStatusCode } from '../utils/retry.js'
+import { settleSyncCommands } from '../utils/sync-commands.js'
 import { ToolNames } from '../utils/tool-names.js'
 
 const ArgsSchema = {
@@ -31,18 +33,7 @@ const completeTasks = {
     outputSchema: OutputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     async execute(args, client) {
-        // Up to the write limit at once: one request per task, one after another,
-        // takes a large batch past the time a client waits for a tool call. Each
-        // attempt takes its own slot, so a task waiting to retry holds none.
-        const writeLimiter = getWriteLimiter(client)
-        const outcomes = await Promise.allSettled(
-            args.ids.map((id) =>
-                // Closing a recurring task moves it to its next occurrence, so a
-                // repeat after a 502/504 that had already landed would skip one.
-                // Only a 503, where the API turned the request away, is retried.
-                executeCreateWithRetry(() => writeLimiter(() => client.closeTask(id))),
-            ),
-        )
+        const outcomes = await closeTasks(client, args.ids)
 
         const { succeeded, failures } = partitionSettled(args.ids, outcomes, (id) => id)
         const completed = succeeded.map(({ item }) => item)
@@ -67,6 +58,106 @@ const completeTasks = {
         }
     },
 } satisfies TodoistTool<typeof ArgsSchema, typeof OutputSchema>
+
+/**
+ * Closes the tasks in one Sync request, as the apps do when a task is ticked off:
+ * a recurring task moves to its next occurrence, any other is completed with its
+ * subtasks.
+ *
+ * `item_close` answers "ok" for a task it can't find, so the tasks are read first
+ * and only the ones that exist are sent; the rest are reported as not found rather
+ * than as completed. Retrying the request is safe: Todoist skips a command whose
+ * `uuid` it has already applied, so a recurring task is never closed twice.
+ */
+async function closeTasks(
+    client: TodoistApi,
+    ids: string[],
+): Promise<PromiseSettledResult<void>[]> {
+    const uniqueIds = [...new Set(ids)]
+    let lookups: Map<string, PromiseSettledResult<boolean>>
+    try {
+        lookups = await findOpenTasks(client, uniqueIds)
+    } catch (error) {
+        return ids.map(() => ({ status: 'rejected', reason: error }))
+    }
+
+    // Only open tasks are sent, and a task listed twice is closed once: closing a
+    // recurring task again would skip an occurrence.
+    const toClose = uniqueIds.filter((id) => {
+        const lookup = lookups.get(id)
+        return lookup?.status === 'fulfilled' && lookup.value
+    })
+    const closed = new Map<string, PromiseSettledResult<void>>()
+    if (toClose.length > 0) {
+        const commands: SyncCommand[] = toClose.map((id) => ({
+            type: 'item_close',
+            uuid: randomUUID(),
+            args: { id },
+        }))
+        const { outcomes } = await settleSyncCommands(client, commands)
+        for (const [position, id] of toClose.entries()) {
+            const outcome = outcomes[position]
+            if (outcome) {
+                closed.set(id, outcome)
+            }
+        }
+    }
+
+    return ids.map((id): PromiseSettledResult<void> => {
+        const lookup = lookups.get(id)
+        if (lookup?.status === 'rejected') {
+            return lookup
+        }
+        return (
+            closed.get(id) ?? {
+                status: 'rejected',
+                reason: new Error(
+                    `Task not found, or already completed. Check the ID with ${ToolNames.FIND_TASKS}.`,
+                ),
+            }
+        )
+    })
+}
+
+/**
+ * Whether each task is open, read in one request where possible.
+ *
+ * The API refuses a whole `getTasks({ ids })` when one ID is malformed, so on a 400
+ * each task is read on its own instead: a malformed ID then fails alone, with the
+ * same error a single read gives, and the rest are still found. A task the batch
+ * read leaves out is not open, being unknown or already completed.
+ */
+async function findOpenTasks(
+    client: TodoistApi,
+    ids: string[],
+): Promise<Map<string, PromiseSettledResult<boolean>>> {
+    try {
+        const { results } = await executeWithRetry(() =>
+            client.getTasks({ ids, limit: ids.length }),
+        )
+        const open = new Set(results.map((task) => task.id))
+        return new Map(ids.map((id) => [id, { status: 'fulfilled', value: open.has(id) }]))
+    } catch (error) {
+        if (extractHttpStatusCode(error) !== 400) {
+            throw error
+        }
+    }
+
+    const reads = await Promise.allSettled(
+        ids.map((id) => executeWithRetry(() => client.getTask(id))),
+    )
+    return new Map(
+        ids.map((id, index): [string, PromiseSettledResult<boolean>] => {
+            const read = reads[index]
+            return [
+                id,
+                read?.status === 'fulfilled'
+                    ? { status: 'fulfilled', value: !read.value.checked }
+                    : { status: 'rejected', reason: read?.reason },
+            ]
+        }),
+    )
+}
 
 function generateTextContent({
     completed,
