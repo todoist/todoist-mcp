@@ -36,6 +36,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import { instructions } from '../src/mcp-server.js'
 import { registeredTools } from '../src/tool-registry.js'
+import type { findFolders } from '../src/tools/find-folders.js'
 import type { findProjects } from '../src/tools/find-projects.js'
 import type { listWorkspaces } from '../src/tools/list-workspaces.js'
 import type { UserInfoStructured } from '../src/tools/user-info.js'
@@ -58,6 +59,13 @@ type StructuredOutput<T extends { outputSchema: z.ZodRawShape }> = z.infer<
 
 /** The workspace the scenario-specific canned lookups below belong to. */
 const EVAL_WORKSPACE_ID = '90210'
+
+/** The folder the folder scenarios below act on, and a canned listing of it. */
+const EVAL_FOLDER_ID = '6XFold001'
+const EVAL_FOLDERS = {
+    folders: [{ id: EVAL_FOLDER_ID, name: 'Marketing', workspaceId: EVAL_WORKSPACE_ID }],
+    totalCount: 1,
+} satisfies StructuredOutput<typeof findFolders>
 
 /** First item of a batch tool's array argument, e.g. add-tasks' `tasks`. */
 function firstItem(input: Record<string, unknown>, key: string): Record<string, unknown> | null {
@@ -300,6 +308,79 @@ const SCENARIOS: Scenario[] = [
                 ? null
                 : `not a join of 6XQ3Sales9: ${JSON.stringify(input)}`,
         guards: 'project-management join: joining a workspace project when the user asks',
+    },
+    {
+        id: 'list-folders',
+        prompt: 'What folders do we have in the Acme Team workspace?',
+        expect: [ToolNames.FIND_FOLDERS],
+        // Naming the workspace invites a look at which workspaces there are.
+        context: {
+            [ToolNames.LIST_WORKSPACES]: {
+                type: 'workspaces',
+                workspaces: [
+                    {
+                        id: EVAL_WORKSPACE_ID,
+                        name: 'Acme Team',
+                        plan: 'BUSINESS',
+                        role: 'MEMBER',
+                        isLinkSharingEnabled: true,
+                        isGuestAllowed: false,
+                        creatorId: '1234567',
+                    },
+                ],
+                count: 1,
+            } satisfies StructuredOutput<typeof listWorkspaces>,
+        },
+        guards: 'find-folders: listing the folders that group workspace projects',
+    },
+    {
+        id: 'create-project-in-folder',
+        prompt: `Create a project "Q1 Campaigns" in our Marketing folder (folder ID ${EVAL_FOLDER_ID}).`,
+        expect: [ToolNames.ADD_PROJECTS],
+        // Confirming the folder exists first is reasonable.
+        context: { [ToolNames.FIND_FOLDERS]: EVAL_FOLDERS },
+        check: (input) => {
+            const project = firstItem(input, 'projects')
+            return project?.folderId === EVAL_FOLDER_ID
+                ? null
+                : `not created in folder ${EVAL_FOLDER_ID}: ${JSON.stringify(input)}`
+        },
+        guards: 'add-projects folderId: creating a project straight into a folder',
+    },
+    {
+        id: 'move-project-into-folder',
+        prompt: `Put workspace project 6XQ3Plan99 ("Q3 Planning") in the Marketing folder (folder ID ${EVAL_FOLDER_ID}).`,
+        // project-move only moves between personal and workspace; update-projects
+        // moves a workspace project between folders.
+        expect: [ToolNames.UPDATE_PROJECTS],
+        context: { [ToolNames.FIND_FOLDERS]: EVAL_FOLDERS },
+        check: (input) => {
+            const project = firstItem(input, 'projects')
+            return project?.id === '6XQ3Plan99' && project.folderId === EVAL_FOLDER_ID
+                ? null
+                : `not a move of 6XQ3Plan99 into ${EVAL_FOLDER_ID}: ${JSON.stringify(input)}`
+        },
+        guards: 'update-projects folderId: moving a workspace project into a folder',
+    },
+    {
+        id: 'delete-folder',
+        prompt: `Delete the Marketing folder (folder ID ${EVAL_FOLDER_ID}).`,
+        expect: [ToolNames.DELETE_OBJECT],
+        // Checking what the folder holds before deleting it is reasonable.
+        context: {
+            [ToolNames.FIND_FOLDERS]: EVAL_FOLDERS,
+            [ToolNames.FIND_PROJECTS]: {
+                projects: [],
+                totalCount: 0,
+                hasMore: false,
+                appliedFilters: { folderId: EVAL_FOLDER_ID },
+            } satisfies StructuredOutput<typeof findProjects>,
+        },
+        check: (input) =>
+            input.type === 'folder' && input.id === EVAL_FOLDER_ID
+                ? null
+                : `not a delete of folder ${EVAL_FOLDER_ID}: ${JSON.stringify(input)}`,
+        guards: 'delete-object folder: deleting a folder',
     },
 ]
 
