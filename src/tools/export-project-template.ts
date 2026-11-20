@@ -70,7 +70,7 @@ const exportProjectTemplate = {
             }
         }
 
-        const content = await client.exportTemplateAsFile({ projectId, useRelativeDates })
+        const content = await client.exportProjectAsCsv({ projectId, useRelativeDates })
         const lines = content.split('\n').filter((line) => line.trim().length > 0)
 
         return {

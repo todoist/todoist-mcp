@@ -5,7 +5,7 @@ import { ToolNames } from '../utils/tool-names.js'
 import { exportProjectTemplate } from './export-project-template.js'
 
 const mockTodoistApi = {
-    exportTemplateAsFile: vi.fn(),
+    exportProjectAsCsv: vi.fn(),
     exportTemplateAsUrl: vi.fn(),
 } as unknown as Mocked<TodoistApi>
 
@@ -21,14 +21,14 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
     describe('exporting as a file', () => {
         it('should return the CSV content and row count', async () => {
             const csv = `${CSV_HEADER}\ntask,Buy milk,,4`
-            mockTodoistApi.exportTemplateAsFile.mockResolvedValue(csv)
+            mockTodoistApi.exportProjectAsCsv.mockResolvedValue(csv)
 
             const result = await exportProjectTemplate.execute(
                 { projectId: TEST_IDS.PROJECT_TEST, format: 'file' },
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.exportTemplateAsFile).toHaveBeenCalledWith({
+            expect(mockTodoistApi.exportProjectAsCsv).toHaveBeenCalledWith({
                 projectId: TEST_IDS.PROJECT_TEST,
                 useRelativeDates: undefined,
             })
@@ -43,7 +43,7 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
 
         it('should preview only the first rows of a long export', async () => {
             const rows = Array.from({ length: 12 }, (_, index) => `task,Task ${index + 1},,4`)
-            mockTodoistApi.exportTemplateAsFile.mockResolvedValue([CSV_HEADER, ...rows].join('\n'))
+            mockTodoistApi.exportProjectAsCsv.mockResolvedValue([CSV_HEADER, ...rows].join('\n'))
 
             const result = await exportProjectTemplate.execute(
                 { projectId: TEST_IDS.PROJECT_TEST, format: 'file' },
@@ -58,7 +58,7 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
         })
 
         it('should default to the file format when none is given', async () => {
-            mockTodoistApi.exportTemplateAsFile.mockResolvedValue(`${CSV_HEADER}\ntask,Buy milk,,4`)
+            mockTodoistApi.exportProjectAsCsv.mockResolvedValue(`${CSV_HEADER}\ntask,Buy milk,,4`)
 
             // scripts/run-tool.ts calls execute() without applying schema defaults.
             const result = await exportProjectTemplate.execute(
@@ -68,12 +68,12 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.exportTemplateAsFile).toHaveBeenCalled()
+            expect(mockTodoistApi.exportProjectAsCsv).toHaveBeenCalled()
             expect(result.structuredContent?.format).toBe('file')
         })
 
         it('should ignore blank lines when counting rows', async () => {
-            mockTodoistApi.exportTemplateAsFile.mockResolvedValue(
+            mockTodoistApi.exportProjectAsCsv.mockResolvedValue(
                 `${CSV_HEADER}\n\ntask,Buy milk,,4\n\n`,
             )
 
@@ -102,7 +102,7 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
                 projectId: TEST_IDS.PROJECT_TEST,
                 useRelativeDates: true,
             })
-            expect(mockTodoistApi.exportTemplateAsFile).not.toHaveBeenCalled()
+            expect(mockTodoistApi.exportProjectAsCsv).not.toHaveBeenCalled()
             expect(result.structuredContent).toEqual({
                 format: 'url',
                 fileName: 'My Project.csv',
@@ -113,7 +113,7 @@ describe(`${EXPORT_PROJECT_TEMPLATE} tool`, () => {
     })
 
     it('should propagate export errors', async () => {
-        mockTodoistApi.exportTemplateAsFile.mockRejectedValue(
+        mockTodoistApi.exportProjectAsCsv.mockRejectedValue(
             new Error('API Error: Project not found'),
         )
 
