@@ -151,6 +151,9 @@ function toResolvedUser(collaborator: ProjectCollaborator): ResolvedUser {
     }
 }
 
+// Each client's current user ID, by client, shared by lookups running at once.
+const cacheScopesByClient = new WeakMap<TodoistApi, Promise<string | null>>()
+
 /** Keyword that resolves to the current authenticated user. */
 export const SELF_USER_KEYWORD = 'me' as const
 
@@ -431,13 +434,26 @@ export class UserResolver {
         return names
     }
 
+    /**
+     * The current user's ID, which keys every cache entry so accounts never share
+     * one. Looked up once per client: the ID behind a client's token never changes,
+     * and asking again on every collaborator lookup cost a request each time. A
+     * failed lookup is not kept, so the next call tries again.
+     */
     private async getCacheScope(client: TodoistApi): Promise<string | null> {
-        try {
-            const currentUser = await client.getUser()
-            return currentUser?.id ?? null
-        } catch (_error) {
-            return null
+        const known = cacheScopesByClient.get(client)
+        if (known) return known
+
+        const lookup = client.getUser().then(
+            (currentUser) => currentUser?.id ?? null,
+            () => null,
+        )
+        cacheScopesByClient.set(client, lookup)
+        const scope = await lookup
+        if (scope === null && cacheScopesByClient.get(client) === lookup) {
+            cacheScopesByClient.delete(client)
         }
+        return scope
     }
 
     private getCacheKey(cacheScope: string | null, cacheKey: string): string | null {

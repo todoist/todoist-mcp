@@ -86,6 +86,16 @@ describe('assignmentValidator.validateTaskCreationAssignment', () => {
         })
     })
 
+    it('looks the current user up once for a batch of assignments', async () => {
+        await assignmentValidator.validateBulkAssignment(client, [
+            { taskId: undefined, projectId: TARGET_PROJECT_ID, responsibleUid: 'ada@example.com' },
+            { taskId: undefined, projectId: TARGET_PROJECT_ID, responsibleUid: 'Ada Lovelace' },
+            { taskId: undefined, projectId: TARGET_PROJECT_ID, responsibleUid: 'ada-id' },
+        ])
+
+        expect(client.getUser).toHaveBeenCalledTimes(1)
+    })
+
     it('prefers an exact name on another project over a partial match on the target', async () => {
         client.getProjectCollaborators.mockImplementation(async (projectId: string) =>
             page(

@@ -223,6 +223,22 @@ describe('UserResolver', () => {
                 expect.objectContaining({ cursor: 'page-2' }),
             )
         })
+
+        it('asks for the current user again after the lookup failed', async () => {
+            mockClient.getUser.mockRejectedValueOnce(new Error('Auth unavailable'))
+            mockClient.getProjectCollaborators = vi.fn().mockResolvedValue({
+                results: [{ id: 'ada-id', name: 'Ada', email: 'ada@example.com' }],
+                nextCursor: null,
+            }) as unknown as typeof mockClient.getProjectCollaborators
+
+            await resolver.getProjectCollaborators(mockClient, 'project-1')
+            await resolver.getProjectCollaborators(mockClient, 'project-1')
+            await resolver.getProjectCollaborators(mockClient, 'project-1')
+
+            // The failed lookup is not kept: the second call asks again, and the
+            // third reuses the ID it found.
+            expect(mockClient.getUser).toHaveBeenCalledTimes(2)
+        })
     })
 
     describe('getUserShortNames', () => {
