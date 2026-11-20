@@ -54,7 +54,10 @@ const TemplateSchema = z.object({
     // documents the full shape, which is what this returns.
     content: z
         .record(z.string(), z.unknown())
-        .describe("The template's content, in the shape update-template's `content` takes."),
+        .optional()
+        .describe(
+            "The template's content, in the shape update-template's `content` takes. Absent for setup templates.",
+        ),
 })
 
 const OutputSchema = {
@@ -149,13 +152,23 @@ const fetchObject = {
                 }
                 case 'template': {
                     const templateId = extractTemplateId(id)
-                    const [template, { content }] = await Promise.all([
+                    const [template, contentRead] = await Promise.all([
                         client.getTemplate(templateId),
-                        client.getTemplateContent(templateId),
+                        settle(() => client.getTemplateContent(templateId)),
                     ])
-                    const toolContent = toToolTemplateContent(content)
+                    // A setup template creates several projects and labels, which template
+                    // content can't describe, so the SDK refuses to read it. Its details
+                    // are still worth returning.
+                    const isSetup = template.templateType === 'setup'
+                    if (!isSetup && contentRead.status === 'rejected') {
+                        throw contentRead.reason
+                    }
+                    const toolContent =
+                        !isSetup && contentRead.status === 'fulfilled'
+                            ? toToolTemplateContent(contentRead.value.content)
+                            : undefined
                     return {
-                        textContent: `Found template: ${template.name} • id=${template.id} • ${outlineTemplateContent(toolContent)}`,
+                        textContent: `Found template: ${template.name} • id=${template.id} • ${toolContent ? outlineTemplateContent(toolContent) : 'a setup template, which creates several projects and labels; its content cannot be read'}`,
                         structuredContent: {
                             type,
                             id: template.id,
@@ -184,5 +197,13 @@ const fetchObject = {
         }
     },
 } satisfies TodoistTool<typeof ArgsSchema, typeof OutputSchema>
+
+async function settle<T>(run: () => Promise<T>): Promise<PromiseSettledResult<T>> {
+    try {
+        return { status: 'fulfilled', value: await run() }
+    } catch (reason) {
+        return { status: 'rejected', reason }
+    }
+}
 
 export { fetchObject }
