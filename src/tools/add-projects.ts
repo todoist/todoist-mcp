@@ -1,4 +1,13 @@
-import { PROJECT_VIEW_STYLES, type PersonalProject, type WorkspaceProject } from '@todoist/sdk'
+import { randomUUID } from 'node:crypto'
+import {
+    createCommand,
+    type Folder,
+    PROJECT_VIEW_STYLES,
+    type PersonalProject,
+    type ProjectAddArgs,
+    type TodoistApi,
+    type WorkspaceProject,
+} from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
@@ -14,8 +23,11 @@ import {
 } from '../utils/personal-project-limit.js'
 import { appendFailureSummary } from '../utils/response-builders.js'
 import { executeCreateWithRetry, executeWithRetry, extractHttpStatusCode } from '../utils/retry.js'
+import { settleSyncCommands } from '../utils/sync-commands.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { workspaceResolver } from '../utils/workspace-resolver.js'
+
+const { FIND_FOLDERS } = ToolNames
 
 const ProjectSchema = z.object({
     name: z.string().min(1).describe('The name of the project.'),
@@ -44,6 +56,13 @@ const ProjectSchema = z.object({
         .describe(
             'The workspace to create the project in. Accepts a workspace name or workspace ID. ' +
                 'If not provided, creates a personal project. Use list-workspaces to see available workspaces.',
+        ),
+    folderId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            `Create it in this workspace folder (see ${FIND_FOLDERS}). The folder sets the workspace, so workspace can be omitted.`,
         ),
 })
 
@@ -74,6 +93,7 @@ const addProjects = {
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     async execute({ projects }, client) {
         const workspaceResolutions = new Map<string, Promise<string>>()
+        const folderLookups = new Map<string, Promise<Folder>>()
         const admitPersonalProject = createPersonalProjectGate(() =>
             loadPersonalProjectCapacity(client, ToolNames.ADD_PROJECTS),
         )
@@ -94,13 +114,32 @@ const addProjects = {
             return resolution
         }
 
+        const lookupFolder = (folderId: string) => {
+            let lookup = folderLookups.get(folderId)
+            if (!lookup) {
+                lookup = executeWithRetry(() => client.getFolder(folderId))
+                folderLookups.set(folderId, lookup)
+            }
+            return lookup
+        }
+
         // Each project is created independently: a failure on one (for example, the API
         // rejecting it with a 403 permission error) must not discard the projects that
         // succeeded nor collapse into one opaque batch error that invites a full retry.
         // Each create goes through executeCreateWithRetry, which retries a 503 but not a
         // 502/504, since the item may already exist and the API cannot dedupe a repeat.
         const settled = await Promise.allSettled(
-            projects.map(async ({ workspace, ...rest }) => {
+            projects.map(async ({ workspace, folderId, ...rest }) => {
+                if (folderId) {
+                    const folder = await lookupFolder(folderId)
+                    if (workspace && (await resolveWorkspaceId(workspace)) !== folder.workspaceId) {
+                        throw new Error(
+                            `Folder "${folder.name}" (id=${folder.id}) is in workspace id=${folder.workspaceId}, not "${workspace}". Omit workspace to create the project in the folder's workspace.`,
+                        )
+                    }
+                    return await createProjectInFolder(client, rest, folder)
+                }
+
                 const workspaceId = await resolveWorkspaceId(workspace)
                 const createProject = () =>
                     executeCreateWithRetry(() =>
@@ -147,6 +186,50 @@ const addProjects = {
         }
     },
 } satisfies TodoistTool<typeof ArgsSchema, typeof OutputSchema>
+
+/**
+ * Creates a workspace project inside a folder.
+ *
+ * The REST create takes no folder, and creating the project first and moving it
+ * after would leave it at the top level of the workspace whenever the move fails.
+ * Sync's `project_add` places it in the folder in the same write, so a project is
+ * either created where it was asked for or not at all. Retrying the Sync request
+ * is safe, since Todoist skips a command whose `uuid` it has already applied.
+ */
+async function createProjectInFolder(
+    client: TodoistApi,
+    project: Omit<ProjectAddArgs, 'workspaceId' | 'folderId'>,
+    folder: Folder,
+): Promise<PersonalProject | WorkspaceProject> {
+    const tempId = randomUUID()
+    const { outcomes, tempIdMapping } = await settleSyncCommands(client, [
+        createCommand(
+            'project_add',
+            { ...project, workspaceId: folder.workspaceId, folderId: folder.id },
+            tempId,
+        ),
+    ])
+    const [outcome] = outcomes
+    if (outcome?.status === 'rejected') {
+        throw outcome.reason
+    }
+
+    const id = tempIdMapping[tempId]
+    if (!id) {
+        throw new Error(
+            'Todoist reported the project as created but did not return its ID. Check the folder before creating it again.',
+        )
+    }
+    try {
+        return await executeWithRetry(() => client.getProject(id))
+    } catch {
+        // The reason is left out: an HTTP status in this message would be read as
+        // the API rejecting the create.
+        throw new Error(
+            `Created in the folder as id=${id}, but reading it back failed. Do not create it again.`,
+        )
+    }
+}
 
 /**
  * Admits a batch's personal project creations while the account has room for them.

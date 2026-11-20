@@ -9,8 +9,11 @@ import { type Mocked, vi } from 'vitest'
 import { z } from 'zod'
 import { ProjectSchema } from '../utils/output-schemas.js'
 import {
+    allApplied,
     createApiError,
+    createMockFolder,
     createMockProject,
+    createMockWorkspace,
     createMockWorkspaceProject,
     mockPersonalProjectCapacity,
     TEST_IDS,
@@ -24,6 +27,9 @@ const mockTodoistApi = {
     addProject: vi.fn(),
     getWorkspaces: vi.fn(),
     getPersonalProjectCapacity: vi.fn(),
+    getFolder: vi.fn(),
+    getProject: vi.fn(),
+    sync: vi.fn(),
 } as unknown as Mocked<TodoistApi>
 
 const { ADD_PROJECTS } = ToolNames
@@ -860,6 +866,180 @@ describe(`${ADD_PROJECTS} tool`, () => {
             expect(result.structuredContent.projects[0]?.id).toBe('personal-project')
             expect(result.structuredContent.failures).toEqual([
                 expect.objectContaining({ item: 'Workspace project' }),
+            ])
+        })
+    })
+
+    describe('creating projects in a folder', () => {
+        const marketing = createMockFolder({ id: TEST_IDS.FOLDER_1, name: 'Marketing' })
+
+        /** Applies every project_add and gives each new project the ID `<name>-id`. */
+        function mockSyncCreates() {
+            mockTodoistApi.sync.mockImplementation(async ({ commands = [] }) => ({
+                syncStatus: allApplied(commands),
+                tempIdMapping: Object.fromEntries(
+                    commands.map((command) => [
+                        command.tempId,
+                        `${String(command.args.name).toLowerCase()}-id`,
+                    ]),
+                ),
+            }))
+            mockTodoistApi.getProject.mockImplementation(async (id) =>
+                createMockWorkspaceProject({
+                    id,
+                    name: id.replace(/-id$/, ''),
+                    folderId: TEST_IDS.FOLDER_1,
+                }),
+            )
+        }
+
+        beforeEach(() => {
+            workspaceResolver.clearCache()
+            mockTodoistApi.getWorkspaces.mockResolvedValue([
+                createMockWorkspace({ id: TEST_IDS.WORKSPACE_1, name: 'Acme' }),
+                createMockWorkspace({ id: TEST_IDS.WORKSPACE_2, name: 'Studio' }),
+            ])
+            mockTodoistApi.getFolder.mockImplementation(async (id) => {
+                if (id === TEST_IDS.FOLDER_1) return marketing
+                throw createApiError({ status: 404, error: 'Folder not found' })
+            })
+        })
+
+        it("should create each project in the folder, in the folder's workspace", async () => {
+            mockSyncCreates()
+
+            const result = await addProjects.execute(
+                {
+                    projects: [
+                        { name: 'campaigns', folderId: TEST_IDS.FOLDER_1, color: 'red' },
+                        { name: 'events', folderId: TEST_IDS.FOLDER_1, workspace: 'Acme' },
+                    ],
+                },
+                mockTodoistApi,
+            )
+
+            // The folder is read once for the batch, and names the workspace.
+            expect(mockTodoistApi.getFolder).toHaveBeenCalledExactlyOnceWith(TEST_IDS.FOLDER_1)
+            const sentCommands = mockTodoistApi.sync.mock.calls.flatMap(
+                ([request]) => request.commands ?? [],
+            )
+            expect(sentCommands.map(({ type, args }) => ({ type, args }))).toEqual([
+                {
+                    type: 'project_add',
+                    args: {
+                        name: 'campaigns',
+                        color: 'red',
+                        workspaceId: TEST_IDS.WORKSPACE_1,
+                        folderId: TEST_IDS.FOLDER_1,
+                    },
+                },
+                {
+                    type: 'project_add',
+                    args: {
+                        name: 'events',
+                        workspaceId: TEST_IDS.WORKSPACE_1,
+                        folderId: TEST_IDS.FOLDER_1,
+                    },
+                },
+            ])
+            expect(mockTodoistApi.addProject).not.toHaveBeenCalled()
+            // Workspace projects never count towards the personal project limit.
+            expect(mockTodoistApi.getPersonalProjectCapacity).not.toHaveBeenCalled()
+            expect(mockTodoistApi.getProject.mock.calls).toEqual([['campaigns-id'], ['events-id']])
+            expect(
+                result.structuredContent.projects.map(({ id, folderId }) => ({ id, folderId })),
+            ).toEqual([
+                { id: 'campaigns-id', folderId: TEST_IDS.FOLDER_1 },
+                { id: 'events-id', folderId: TEST_IDS.FOLDER_1 },
+            ])
+            expect(result.structuredContent.failures).toEqual([])
+        })
+
+        it('should fail only the projects whose folder cannot be read', async () => {
+            mockTodoistApi.addProject.mockResolvedValue(
+                createMockProject({ id: 'groceries-id', name: 'Groceries' }),
+            )
+
+            const result = await addProjects.execute(
+                {
+                    projects: [{ name: 'Lost', folderId: 'missing-folder' }, { name: 'Groceries' }],
+                },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.sync).not.toHaveBeenCalled()
+            expect(result.structuredContent.projects.map((project) => project.id)).toEqual([
+                'groceries-id',
+            ])
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'Lost', error: 'Folder not found (HTTP 404)' },
+            ])
+        })
+
+        it('should refuse a folder outside the workspace named', async () => {
+            const result = await addProjects.execute(
+                {
+                    projects: [
+                        { name: 'Campaigns', folderId: TEST_IDS.FOLDER_1, workspace: 'Studio' },
+                    ],
+                },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.sync).not.toHaveBeenCalled()
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'Campaigns',
+                    error: `Folder "Marketing" (id=${TEST_IDS.FOLDER_1}) is in workspace id=${TEST_IDS.WORKSPACE_1}, not "Studio". Omit workspace to create the project in the folder's workspace.`,
+                },
+            ])
+        })
+
+        it('should report a create the API rejected', async () => {
+            mockTodoistApi.sync.mockImplementation(async ({ commands = [] }) => ({
+                syncStatus: Object.fromEntries(
+                    commands.map((command) => [
+                        command.uuid,
+                        {
+                            error: 'Insufficient permissions',
+                            errorCode: 39,
+                            errorExtra: {},
+                            errorTag: 'FORBIDDEN',
+                            httpCode: 403,
+                        },
+                    ]),
+                ),
+                tempIdMapping: {},
+            }))
+
+            const result = await addProjects.execute(
+                { projects: [{ name: 'Campaigns', folderId: TEST_IDS.FOLDER_1 }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.getProject).not.toHaveBeenCalled()
+            expect(result.structuredContent.projects).toEqual([])
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'Campaigns', error: expect.stringContaining('Insufficient permissions') },
+            ])
+        })
+
+        it('should say the project exists when it cannot be read back', async () => {
+            mockSyncCreates()
+            mockTodoistApi.getProject.mockRejectedValue(
+                createApiError({ status: 403, error: 'Forbidden' }),
+            )
+
+            const result = await addProjects.execute(
+                { projects: [{ name: 'Campaigns', folderId: TEST_IDS.FOLDER_1 }] },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'Campaigns',
+                    error: 'Created in the folder as id=campaigns-id, but reading it back failed. Do not create it again.',
+                },
             ])
         })
     })

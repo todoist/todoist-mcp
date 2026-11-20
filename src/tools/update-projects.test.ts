@@ -2,7 +2,7 @@ import type { PersonalProject, TodoistApi, WorkspaceProject } from '@todoist/sdk
 import { type Mocked, vi } from 'vitest'
 import { z } from 'zod'
 import { ProjectSchema } from '../utils/output-schemas.js'
-import { createMockProject } from '../utils/test-helpers.js'
+import { createMockProject, createMockWorkspaceProject, TEST_IDS } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { updateProjects } from './update-projects.js'
 
@@ -211,6 +211,41 @@ describe(`${UPDATE_PROJECTS} tool`, () => {
             expect(textContent).toMatchSnapshot()
             expect(textContent).toContain('Updated 1 project:')
             expect(textContent).toContain('Updated Favorite Project (id=project-123)')
+        })
+    })
+
+    describe('folders', () => {
+        it('should move a workspace project into a folder', async () => {
+            mockTodoistApi.updateProject.mockResolvedValue(
+                createMockWorkspaceProject({ folderId: TEST_IDS.FOLDER_1 }),
+            )
+
+            // Parsed as a client's call is, so a schema without folderId would strip it.
+            const args = z.object(updateProjects.parameters).parse({
+                projects: [{ id: TEST_IDS.PROJECT_WORKSPACE, folderId: TEST_IDS.FOLDER_1 }],
+            })
+            const result = await updateProjects.execute(args, mockTodoistApi)
+
+            expect(mockTodoistApi.updateProject).toHaveBeenCalledExactlyOnceWith(
+                TEST_IDS.PROJECT_WORKSPACE,
+                { folderId: TEST_IDS.FOLDER_1 },
+            )
+            expect(result.structuredContent.projects[0]?.folderId).toBe(TEST_IDS.FOLDER_1)
+        })
+
+        it('should move a workspace project out of its folder with "remove"', async () => {
+            mockTodoistApi.updateProject.mockResolvedValue(createMockWorkspaceProject())
+
+            const result = await updateProjects.execute(
+                { projects: [{ id: TEST_IDS.PROJECT_WORKSPACE, folderId: 'remove' }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.updateProject).toHaveBeenCalledExactlyOnceWith(
+                TEST_IDS.PROJECT_WORKSPACE,
+                { folderId: null },
+            )
+            expect(result.structuredContent.projects[0]?.folderId).toBeUndefined()
         })
     })
 

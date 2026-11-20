@@ -14,7 +14,7 @@ import { executeCreateWithRetry, executeWithRetry } from '../utils/retry.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { workspaceResolver } from '../utils/workspace-resolver.js'
 
-const { LIST_WORKSPACES } = ToolNames
+const { ADD_PROJECTS, LIST_WORKSPACES, UPDATE_PROJECTS } = ToolNames
 
 const FolderSchema = z.object({
     name: z.string().min(1).describe('The name of the folder.'),
@@ -46,8 +46,7 @@ type Failure = { item: string; error: string }
 
 const addFolders = {
     name: ToolNames.ADD_FOLDERS,
-    description:
-        "Add one or more folders to group a workspace's projects. Folders exist only in workspaces.",
+    description: `Add one or more folders to group a workspace's projects. Put projects in one with ${ADD_PROJECTS} or ${UPDATE_PROJECTS} folderId.`,
     parameters: ArgsSchema,
     outputSchema: OutputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
