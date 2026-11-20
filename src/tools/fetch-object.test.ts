@@ -1,4 +1,10 @@
-import type { Comment, Section, Task, TodoistApi } from '@todoist/sdk'
+import {
+    type Comment,
+    type Section,
+    type Task,
+    type TodoistApi,
+    TodoistArgumentError,
+} from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { z } from 'zod'
 import { formatToolExecutionError } from '../tool-execution-error.js'
@@ -857,6 +863,41 @@ describe(`${FETCH_OBJECT} tool`, () => {
             expect(object).toMatchObject({ id: 'product-launch', source: 'todoist' })
             expect(object.workspaceId).toBeUndefined()
             expect(object.canEdit).toBeUndefined()
+        })
+
+        // A setup template creates several projects and labels, which template content
+        // can't describe, so the SDK refuses to read it.
+        it('returns a setup template without its content', async () => {
+            mockTodoistApi.getTemplate.mockResolvedValue(
+                createMockTemplate({
+                    id: 'kirsti-lang',
+                    name: 'Kirsti Lang',
+                    templateType: 'setup',
+                    templateSource: 'todoist',
+                    workspaceId: null,
+                }),
+            )
+            mockTodoistApi.getTemplateContent.mockRejectedValue(
+                new TodoistArgumentError('kirsti-lang is a setup template.'),
+            )
+
+            const result = await fetchObject.execute(
+                { type: 'template', id: 'kirsti-lang' },
+                mockTodoistApi,
+            )
+
+            const object = result.structuredContent.object as Record<string, unknown>
+            expect(object).toMatchObject({ id: 'kirsti-lang', name: 'Kirsti Lang' })
+            expect(object.content).toBeUndefined()
+            expect(result.textContent).toContain('setup template')
+        })
+
+        it('fails when a project template content cannot be read', async () => {
+            mockTodoistApi.getTemplateContent.mockRejectedValue(new Error('Server error'))
+
+            await expect(
+                fetchObject.execute({ type: 'template', id: 'UT_28Ex1' }, mockTodoistApi),
+            ).rejects.toThrow('Failed to fetch template with id UT_28Ex1: Server error')
         })
 
         it('outlines the tasks in the text reply', async () => {
