@@ -11,7 +11,7 @@ import { addTasks } from './tools/add-tasks.js'
 import { analyzeProjectHealth } from './tools/analyze-project-health.js'
 import { completeTasks } from './tools/complete-tasks.js'
 import { deleteObject } from './tools/delete-object.js'
-import { exportProjectTemplate } from './tools/export-project-template.js'
+import { exportProject } from './tools/export-project.js'
 import { fetchObject } from './tools/fetch-object.js'
 import { fetch } from './tools/fetch.js'
 import { findActivity } from './tools/find-activity.js'
@@ -154,7 +154,7 @@ const toolRegistry = {
     manageAssignments,
 
     // Template tools
-    exportProjectTemplate,
+    exportProject,
     importProjectTemplate,
 
     // Workspace tools
