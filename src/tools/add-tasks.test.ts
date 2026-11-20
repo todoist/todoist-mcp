@@ -1481,20 +1481,35 @@ describe(`${ADD_TASKS} tool`, () => {
         })
 
         it('says a task was created when it cannot be read back, so it is not created again', async () => {
-            createTask.mockResolvedValueOnce(createMockTask({ id: 'created-1', content: 'Plan' }))
-            mockTodoistApi.getTasks.mockRejectedValue(
-                Object.assign(new Error('Forbidden'), { httpStatusCode: 403 }),
-            )
+            const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+            try {
+                createTask.mockResolvedValueOnce(
+                    createMockTask({ id: 'created-1', content: 'Plan' }),
+                )
+                mockTodoistApi.getTasks.mockRejectedValue(
+                    createApiError({ status: 403, error: 'Forbidden' }),
+                )
 
-            const result = await addTasks.execute({ tasks: [{ content: 'Plan' }] }, mockTodoistApi)
+                const result = await addTasks.execute(
+                    { tasks: [{ content: 'Plan' }] },
+                    mockTodoistApi,
+                )
 
-            expect(result.structuredContent.tasks).toEqual([])
-            expect(result.structuredContent.failures).toEqual([
-                {
-                    item: 'Plan',
-                    error: 'Created as id=created-1, but reading it back failed. Do not create it again.',
-                },
-            ])
+                expect(result.structuredContent.tasks).toEqual([])
+                expect(result.structuredContent.failures).toEqual([
+                    {
+                        item: 'Plan',
+                        error: 'Created as id=created-1, but reading it back failed. Do not create it again.',
+                    },
+                ])
+                // The reason stays out of the per-task message but must reach the logs.
+                expect(consoleErrorSpy).toHaveBeenCalledWith('add-tasks: read-back failed', {
+                    created: 1,
+                    error: expect.stringContaining('HTTP 403'),
+                })
+            } finally {
+                consoleErrorSpy.mockRestore()
+            }
         })
 
         it('reports every task when the request itself is refused', async () => {
@@ -1512,6 +1527,39 @@ describe(`${ADD_TASKS} tool`, () => {
                 { item: 'Plan', error: 'Todoist API request failed (HTTP 400)' },
                 { item: 'Draft', error: 'Todoist API request failed (HTTP 400)' },
             ])
+        })
+
+        it('checks each assignee once per project for a batch', async () => {
+            const validateSpy = vi
+                .spyOn(assignmentValidator, 'validateTaskCreationAssignment')
+                .mockResolvedValue({
+                    isValid: true,
+                    resolvedUser: { userId: 'me-id', displayName: 'Me', email: 'me@example.com' },
+                })
+            try {
+                createTask.mockImplementation(async (args) =>
+                    createMockTask({ id: `id-${args.content}`, content: args.content }),
+                )
+
+                const result = await addTasks.execute(
+                    {
+                        tasks: ['One', 'Two', 'Three'].map((content) => ({
+                            content,
+                            projectId: TEST_IDS.PROJECT_WORK,
+                            responsibleUser: 'me',
+                        })),
+                    },
+                    mockTodoistApi,
+                )
+
+                expect(result.structuredContent.successCount).toBe(3)
+                expect(validateSpy).toHaveBeenCalledOnce()
+                expect(sentCommands().map((command) => command.args)).toEqual(
+                    Array(3).fill(expect.objectContaining({ responsibleUid: 'me-id' })),
+                )
+            } finally {
+                validateSpy.mockRestore()
+            }
         })
 
         it('reads each project once for a batch of assigned tasks', async () => {

@@ -2,9 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { createCommand, type SyncCommand, type Task, type TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { DueStringParseError, formatDueStringParseError } from '../tool-execution-error.js'
+import {
+    DueStringParseError,
+    formatBatchItemError,
+    formatDueStringParseError,
+} from '../tool-execution-error.js'
 import { createProjectLookup, isInboxProjectId, mapTask, type Project } from '../tool-helpers.js'
-import { assignmentValidator } from '../utils/assignment-validator.js'
+import { assignmentValidator, type ValidationResult } from '../utils/assignment-validator.js'
 import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { BatchLimits } from '../utils/constants.js'
 import { DURATION_INPUT_DESCRIPTION, parseItemDuration } from '../utils/duration-parser.js'
@@ -105,9 +109,7 @@ const addTasks = {
 
         // Every task is checked and turned into a command first. One that fails a check
         // is reported on its own and never sent.
-        const prepared = await Promise.allSettled(
-            tasks.map((task) => prepareTask(task, client, lookups)),
-        )
+        const prepared = await Promise.allSettled(tasks.map((task) => prepareTask(task, lookups)))
         const ready = prepared.flatMap((outcome, index) => {
             const task = tasks[index]
             return outcome.status === 'fulfilled' && task ? [{ index, task, ...outcome.value }] : []
@@ -163,6 +165,8 @@ type BatchLookups = {
     lookUpSectionProject: (sectionId: string) => Promise<string | undefined>
     /** The parent task's project. Rejects when the parent can't be read. */
     lookUpParentProject: (parentId: string) => Promise<string>
+    /** Whether `responsibleUser` can be assigned tasks in the project, and who that is. */
+    checkAssignee: (projectId: string, responsibleUser: string) => Promise<ValidationResult>
 }
 
 /**
@@ -173,6 +177,7 @@ type BatchLookups = {
 function createBatchLookups(client: TodoistApi): BatchLookups {
     const sectionProjects = new Map<string, Promise<string | undefined>>()
     const parentProjects = new Map<string, Promise<string>>()
+    const assignees = new Map<string, Promise<ValidationResult>>()
 
     function cached<T>(cache: Map<string, Promise<T>>, key: string, look: () => Promise<T>) {
         let lookup = cache.get(key)
@@ -183,10 +188,12 @@ function createBatchLookups(client: TodoistApi): BatchLookups {
         return lookup
     }
 
+    // Look each project up at most once, so a batch aimed at projects the
+    // user can't read scans their workspaces once to explain why
+    const lookUpProject = createProjectLookup(client)
+
     return {
-        // Look each project up at most once, so a batch aimed at projects the
-        // user can't read scans their workspaces once to explain why
-        lookUpProject: createProjectLookup(client),
+        lookUpProject,
         lookUpSectionProject: (sectionId) =>
             cached(sectionProjects, sectionId, async () => {
                 const section = await executeWithRetry(() => client.getSection(sectionId))
@@ -197,6 +204,16 @@ function createBatchLookups(client: TodoistApi): BatchLookups {
                 const parent = await executeWithRetry(() => client.getTask(parentId))
                 return parent.projectId
             }),
+        // Keyed by project and the reference as given: a batch assigned to "me" checks once.
+        checkAssignee: (projectId, responsibleUser) =>
+            cached(assignees, JSON.stringify([projectId, responsibleUser]), () =>
+                assignmentValidator.validateTaskCreationAssignment(
+                    client,
+                    projectId,
+                    responsibleUser,
+                    { lookUpProject },
+                ),
+            ),
     }
 }
 
@@ -204,11 +221,7 @@ function createBatchLookups(client: TodoistApi): BatchLookups {
  * Checks one task and builds the `item_add` command that creates it. Throws when the
  * task can't be created as asked, so it is reported without being sent.
  */
-async function prepareTask(
-    task: TaskInput,
-    client: TodoistApi,
-    lookups: BatchLookups,
-): Promise<PreparedTask> {
+async function prepareTask(task: TaskInput, lookups: BatchLookups): Promise<PreparedTask> {
     const {
         content,
         description,
@@ -249,7 +262,7 @@ async function prepareTask(
 
     let responsibleUid: string | undefined
     if (responsibleUser) {
-        responsibleUid = await resolveAssignee(task, client, lookups, resolvedProjectId)
+        responsibleUid = await resolveAssignee(task, lookups, resolvedProjectId)
     }
 
     const tempId = randomUUID()
@@ -280,7 +293,6 @@ async function prepareTask(
 /** Resolves who a task is assigned to, checking they collaborate on its project. */
 async function resolveAssignee(
     task: TaskInput,
-    client: TodoistApi,
     lookups: BatchLookups,
     resolvedProjectId: string | undefined,
 ): Promise<string | undefined> {
@@ -311,12 +323,7 @@ async function resolveAssignee(
         )
     }
 
-    const validation = await assignmentValidator.validateTaskCreationAssignment(
-        client,
-        targetProjectId,
-        responsibleUser,
-        { lookUpProject: lookups.lookUpProject },
-    )
+    const validation = await lookups.checkAssignee(targetProjectId, responsibleUser)
 
     if (!validation.isValid) {
         const errorMsg = validation.error?.message || 'Assignment validation failed'
@@ -384,8 +391,13 @@ async function createTasks(
         for (const task of found) {
             readBack.set(task.id, task)
         }
-    } catch {
-        // Reported per task below: each one was created, only reading it back failed.
+    } catch (error) {
+        // Reported per task below without the reason: each one was created, and an
+        // HTTP status in that message would be read as the API rejecting the create.
+        console.error(`${ToolNames.ADD_TASKS}: read-back failed`, {
+            created: createdIds.size,
+            error: formatBatchItemError(error),
+        })
     }
 
     for (const [index, id] of createdIds) {
