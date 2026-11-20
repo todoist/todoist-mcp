@@ -12,6 +12,11 @@ type SyncCommandResults = {
     outcomes: PromiseSettledResult<void>[]
     /** Server IDs of the resources the request created, keyed by command `tempId`. */
     tempIdMapping: Record<string, string>
+    /**
+     * Whether the request itself failed, so every outcome carries the same
+     * request-level error rather than anything Todoist said about one command.
+     */
+    requestFailed: boolean
 }
 
 const APPLIED: PromiseFulfilledResult<void> = { status: 'fulfilled', value: undefined }
@@ -44,6 +49,7 @@ export async function settleSyncCommands(
             return {
                 outcomes: commands.map(() => ({ status: 'rejected', reason: error })),
                 tempIdMapping: {},
+                requestFailed: true,
             }
         }
         syncStatus = error.syncStatus
@@ -69,5 +75,5 @@ export async function settleSyncCommands(
         }
     })
 
-    return { outcomes, tempIdMapping }
+    return { outcomes, tempIdMapping, requestFailed: false }
 }

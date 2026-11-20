@@ -4,11 +4,13 @@ import { z } from 'zod'
 import { assignmentValidator } from '../utils/assignment-validator.js'
 import { convertPriorityToNumber } from '../utils/priorities.js'
 import {
+    allApplied,
     answerTaskCreates,
     createApiError,
     createMockProject,
     createMockSection,
     createMockTask,
+    createMockUser,
     mockUnjoinedWorkspaceProject,
     TEST_IDS,
     type TaskCreateArgs,
@@ -1164,6 +1166,19 @@ describe(`${ADD_TASKS} tool`, () => {
                 autoReminder: true,
             })
         })
+
+        it('does not add the prefix twice to content that already has it', async () => {
+            createTask.mockResolvedValueOnce(createMockTask({ content: '* Already a header' }))
+
+            await addTasks.execute(
+                { tasks: [{ content: '* Already a header', isUncompletable: true }] },
+                mockTodoistApi,
+            )
+
+            expect(createTask).toHaveBeenCalledWith(
+                expect.objectContaining({ content: '* Already a header' }),
+            )
+        })
     })
 
     describe('order parameter', () => {
@@ -1512,6 +1527,23 @@ describe(`${ADD_TASKS} tool`, () => {
             }
         })
 
+        it('does not blame the due string when the request itself is refused', async () => {
+            // A request-level error reaches every task, so its date tag says nothing
+            // about any one task's due string.
+            mockTodoistApi.sync.mockRejectedValueOnce(
+                createApiError({ status: 400, error: 'Date is invalid', tag: 'INVALID_DATE' }),
+            )
+
+            const result = await addTasks.execute(
+                { tasks: [{ content: 'Water plants', dueString: 'every monday' }] },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'Water plants', error: 'Date is invalid (HTTP 400, tag INVALID_DATE)' },
+            ])
+        })
+
         it('reports every task when the request itself is refused', async () => {
             mockTodoistApi.sync.mockRejectedValueOnce(
                 createApiError({ status: 400, error: 'Bad Request' }),
@@ -1562,16 +1594,61 @@ describe(`${ADD_TASKS} tool`, () => {
             }
         })
 
+        it('reads a shared parent once for a batch of assigned subtasks', async () => {
+            const validateSpy = vi
+                .spyOn(assignmentValidator, 'validateTaskCreationAssignment')
+                .mockResolvedValue({
+                    isValid: true,
+                    resolvedUser: { userId: 'ada', displayName: 'Ada', email: 'ada@example.com' },
+                })
+            try {
+                mockTodoistApi.getTask.mockResolvedValue(
+                    createMockTask({ id: TEST_IDS.TASK_1, projectId: TEST_IDS.PROJECT_WORK }),
+                )
+                createTask.mockImplementation(async (args) =>
+                    createMockTask({ id: `id-${args.content}`, content: args.content }),
+                )
+
+                await addTasks.execute(
+                    {
+                        tasks: ['One', 'Two', 'Three'].map((content) => ({
+                            content,
+                            parentId: TEST_IDS.TASK_1,
+                            responsibleUser: 'ada@example.com',
+                        })),
+                    },
+                    mockTodoistApi,
+                )
+
+                expect(mockTodoistApi.getTask).toHaveBeenCalledOnce()
+            } finally {
+                validateSpy.mockRestore()
+            }
+        })
+
+        it('reports a task Todoist applied but returned no ID for, so it is checked before a retry', async () => {
+            mockTodoistApi.sync.mockImplementation(async ({ commands = [] }) => ({
+                syncStatus: allApplied(commands),
+                tempIdMapping: {},
+            }))
+
+            const result = await addTasks.execute({ tasks: [{ content: 'Plan' }] }, mockTodoistApi)
+
+            expect(mockTodoistApi.getTasks).not.toHaveBeenCalled()
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'Plan',
+                    error: 'Todoist reported the task as created but did not return its ID. Check before creating it again.',
+                },
+            ])
+        })
+
         it('reads each project once for a batch of assigned tasks', async () => {
             userResolver.clearCache()
             const sharedProject = createMockProject({ id: TEST_IDS.PROJECT_WORK, isShared: true })
             const assignee = { id: 'user-ada', name: 'Ada Lovelace', email: 'ada@example.com' }
             mockTodoistApi.getProject.mockResolvedValue(sharedProject)
-            mockTodoistApi.getUser.mockResolvedValue({
-                id: TEST_IDS.USER_ID,
-                fullName: 'Test User',
-                email: 'test@example.com',
-            } as Awaited<ReturnType<TodoistApi['getUser']>>)
+            mockTodoistApi.getUser.mockResolvedValue(createMockUser())
             mockTodoistApi.getProjects.mockResolvedValue({
                 results: [sharedProject],
                 nextCursor: null,

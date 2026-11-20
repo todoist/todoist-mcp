@@ -350,7 +350,7 @@ async function createTasks(
         return results
     }
 
-    const { outcomes, tempIdMapping } = await settleSyncCommands(
+    const { outcomes, tempIdMapping, requestFailed } = await settleSyncCommands(
         client,
         ready.map(({ command }) => command),
     )
@@ -361,7 +361,11 @@ async function createTasks(
         if (outcome?.status !== 'fulfilled') {
             results.set(index, {
                 status: 'rejected',
-                reason: explainRejectedCreate(outcome?.reason, task),
+                // Only Todoist's answer about this task's own command can blame its
+                // due string; a failed request says nothing about any one task.
+                reason: requestFailed
+                    ? outcome?.reason
+                    : explainRejectedCreate(outcome?.reason, task),
             })
             return
         }

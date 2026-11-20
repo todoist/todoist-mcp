@@ -160,8 +160,8 @@ const DUE_DATE_REMOVAL_ALIASES = ['remove', 'no date'] as const
 const DEADLINE_REMOVAL_ALIASES = ['remove', 'no date', 'no deadline'] as const
 const DUE_DATE_REMOVAL_VALUE = 'no date' as const
 
-// Cap the batch size (matching add-tasks) so a single call can't fan out an unbounded
-// number of concurrent SDK requests or buffer an unbounded failures response.
+// Cap the batch size so a single call can't fan out an unbounded number of
+// concurrent SDK requests or buffer an unbounded failures response.
 const MAX_TASKS_PER_OPERATION = BatchLimits.TASKS_PER_OPERATION
 
 const ArgsSchema = {

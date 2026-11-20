@@ -304,10 +304,9 @@ export function answerTaskCreates(
         return { syncStatus, tempIdMapping }
     })
 
-    client.getTasks.mockImplementation(async (args) => ({
-        results: (args?.ids ?? []).flatMap((id) => created.get(id) ?? []),
-        nextCursor: null,
-    }))
+    client.getTasks.mockImplementation(async (args) =>
+        createMockApiResponse((args?.ids ?? []).flatMap((id) => created.get(id) ?? [])),
+    )
 }
 
 function toSyncCommandError(error: unknown): SyncError {
