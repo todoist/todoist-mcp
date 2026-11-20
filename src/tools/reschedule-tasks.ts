@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
 import { mapTask } from '../tool-helpers.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { BatchLimits } from '../utils/constants.js'
 import { parseItemDuration } from '../utils/duration-parser.js'
 import { FailureSchema, TaskSchema as TaskOutputSchema } from '../utils/output-schemas.js'
@@ -69,18 +69,14 @@ const rescheduleTasks = {
             taskInputs.map((input) => executeWithRetry(() => client.getTask(input.id))),
         )
 
+        const read = partitionSettled(taskInputs, fetched, (input) => input.id)
+        failures.push(...read.failures)
+
         const toReschedule: Array<{ id: string; command: SyncCommand }> = []
-        fetched.forEach((outcome, index) => {
-            const input = taskInputs[index]
-            if (!input) return
-            if (outcome.status === 'rejected') {
-                failures.push({ item: input.id, error: formatBatchItemError(outcome.reason) })
-                return
-            }
-            const task = outcome.value
+        for (const { item: input, index, value: task } of read.succeeded) {
             const dateFields = buildRescheduleFields(input.date, task)
             // A task with neither date is not overdue; leave it alone.
-            if (!dateFields) return
+            if (!dateFields) continue
             toReschedule.push({
                 id: input.id,
                 command: createCommand('item_update', {
@@ -89,7 +85,7 @@ const rescheduleTasks = {
                     ...(durations[index] && { duration: durations[index] }),
                 }),
             })
-        })
+        }
 
         const rescheduledIds: string[] = []
         if (toReschedule.length > 0) {
@@ -98,14 +94,9 @@ const rescheduleTasks = {
                 client,
                 toReschedule.map(({ command }) => command),
             )
-            outcomes.forEach((outcome, index) => {
-                const id = toReschedule[index]?.id ?? `Task ${index + 1}`
-                if (outcome.status === 'fulfilled') {
-                    rescheduledIds.push(id)
-                } else {
-                    failures.push({ item: id, error: formatBatchItemError(outcome.reason) })
-                }
-            })
+            const synced = partitionSettled(toReschedule, outcomes, ({ id }) => id)
+            rescheduledIds.push(...synced.succeeded.map(({ item }) => item.id))
+            failures.push(...synced.failures)
         }
 
         logBatchFailures(ToolNames.RESCHEDULE_TASKS, taskInputs.length, failures)

@@ -2,7 +2,7 @@ import { type ColorKey, createCommand, type Filter } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { ColorOutputSchema, ColorSchema } from '../utils/colors.js'
 import { BatchLimits } from '../utils/constants.js'
 import { readFilterDescription } from '../utils/filter-description.js'
@@ -121,16 +121,8 @@ const updateFilters = {
         // Send commands only — then read back separately to get accurate server state
         const { outcomes } = await settleSyncCommands(client, commands)
 
-        const updatedIds: string[] = []
-        const failures: Array<{ item: string; error: string }> = []
-        outcomes.forEach((outcome, i) => {
-            const id = toUpdate[i]?.id ?? `Filter ${i + 1}`
-            if (outcome.status === 'fulfilled') {
-                updatedIds.push(id)
-            } else {
-                failures.push({ item: id, error: formatBatchItemError(outcome.reason) })
-            }
-        })
+        const { succeeded, failures } = partitionSettled(toUpdate, outcomes, (filter) => filter.id)
+        const updatedIds = succeeded.map(({ item }) => item.id)
 
         logBatchFailures(ToolNames.UPDATE_FILTERS, filters.length, failures)
 

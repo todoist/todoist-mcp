@@ -1,14 +1,10 @@
 import type { AddTaskArgs, Task, TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import {
-    DueStringParseError,
-    formatBatchItemError,
-    formatDueStringParseError,
-} from '../tool-execution-error.js'
+import { DueStringParseError, formatDueStringParseError } from '../tool-execution-error.js'
 import { createProjectLookup, isInboxProjectId, mapTask, type Project } from '../tool-helpers.js'
 import { assignmentValidator } from '../utils/assignment-validator.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { BatchLimits } from '../utils/constants.js'
 import { DURATION_INPUT_DESCRIPTION, parseItemDuration } from '../utils/duration-parser.js'
 import { FailureSchema, TaskSchema as TaskOutputSchema } from '../utils/output-schemas.js'
@@ -147,24 +143,13 @@ const addTasks = {
         )
 
         // Flatten and sort by original index to maintain input order in the response
-        const indexed = groupResults.flat().sort((a, b) => a.index - b.index)
+        const settled = groupResults
+            .flat()
+            .sort((a, b) => a.index - b.index)
+            .map(({ result }) => result)
 
-        const newTasks: Task[] = []
-        const failures: Array<{ item: string; error: string }> = []
-
-        for (const { index, result } of indexed) {
-            if (result.status === 'fulfilled') {
-                newTasks.push(result.value)
-            } else {
-                failures.push({
-                    item: tasks[index]?.content ?? `Task ${index + 1}`,
-                    // Keep API error signals (status/code/tag) — `error.message`
-                    // alone collapses e.g. a full-project rejection into a bare
-                    // "HTTP 403: Forbidden"
-                    error: formatBatchItemError(result.reason),
-                })
-            }
-        }
+        const { succeeded, failures } = partitionSettled(tasks, settled, (task) => task.content)
+        const newTasks = succeeded.map(({ value }) => value)
 
         // Every task is settled on its own, so a batch where all of them failed is still
         // reported as a structured result rather than thrown: each failure keeps its own

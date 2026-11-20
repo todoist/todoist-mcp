@@ -11,9 +11,8 @@ import {
 } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
 import { mapProject } from '../tool-helpers.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { ColorSchema } from '../utils/colors.js'
 import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema, ProjectSchema as ProjectOutputSchema } from '../utils/output-schemas.js'
@@ -159,19 +158,12 @@ const addProjects = {
             .sort((a, b) => a.index - b.index)
             .map(({ outcome }) => outcome)
 
-        const newProjects: (PersonalProject | WorkspaceProject)[] = []
-        const failures: Array<{ item: string; error: string }> = []
-
-        settled.forEach((result, index) => {
-            if (result.status === 'fulfilled') {
-                newProjects.push(result.value)
-            } else {
-                failures.push({
-                    item: projects[index]?.name ?? `Project ${index + 1}`,
-                    error: formatBatchItemError(result.reason),
-                })
-            }
-        })
+        const { succeeded, failures } = partitionSettled(
+            projects,
+            settled,
+            (project) => project.name,
+        )
+        const newProjects = succeeded.map(({ value }) => value)
 
         const mappedProjects = newProjects.map(mapProject)
         logBatchFailures(ToolNames.ADD_PROJECTS, projects.length, failures, { redactItems: true })

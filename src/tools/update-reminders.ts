@@ -1,8 +1,7 @@
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
 import { mapReminder } from '../tool-helpers.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { FailureSchema, ReminderSchema as ReminderOutputSchema } from '../utils/output-schemas.js'
 import {
     describeRecipientMismatches,
@@ -146,22 +145,16 @@ const updateReminders = {
             }),
         )
 
-        const mappedReminders: ReturnType<typeof mapReminder>[] = []
+        const { succeeded, failures } = partitionSettled(
+            reminders,
+            settled,
+            (reminder) => reminder.id,
+        )
+        const mappedReminders = succeeded.map(({ value }) => mapReminder(value))
         // The recipient each updated reminder asked for, aligned with `mappedReminders`.
-        const requestedUids: (string | undefined)[] = []
-        const failures: Array<{ item: string; error: string }> = []
-
-        settled.forEach((result, index) => {
-            if (result.status === 'fulfilled') {
-                mappedReminders.push(mapReminder(result.value))
-                const recipient = recipients[index]
-                requestedUids.push(recipient?.status === 'fulfilled' ? recipient.value : undefined)
-            } else {
-                failures.push({
-                    item: reminders[index]?.id ?? `Reminder ${index + 1}`,
-                    error: formatBatchItemError(result.reason),
-                })
-            }
+        const requestedUids = succeeded.map(({ index }) => {
+            const recipient = recipients[index]
+            return recipient?.status === 'fulfilled' ? recipient.value : undefined
         })
 
         logBatchFailures(ToolNames.UPDATE_REMINDERS, reminders.length, failures)

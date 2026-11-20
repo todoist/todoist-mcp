@@ -1,9 +1,8 @@
 import type { AddCommentArgs, Task, TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
 import { isInboxProjectId, mapComment, resolveInboxProjectId } from '../tool-helpers.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import {
     type CommentTarget,
     NO_NOTIFY_KEYWORD,
@@ -149,19 +148,12 @@ const addComments = {
             }),
         )
 
-        const mappedComments: ReturnType<typeof mapComment>[] = []
-        const failures: Array<{ item: string; error: string }> = []
-
-        settled.forEach((result, index) => {
-            if (result.status === 'fulfilled') {
-                mappedComments.push(mapComment(result.value))
-            } else {
-                failures.push({
-                    item: comments[index]?.content ?? `Comment ${index + 1}`,
-                    error: formatBatchItemError(result.reason),
-                })
-            }
-        })
+        const { succeeded, failures } = partitionSettled(
+            comments,
+            settled,
+            (comment) => comment.content,
+        )
+        const mappedComments = succeeded.map(({ value }) => mapComment(value))
 
         logBatchFailures(ToolNames.ADD_COMMENTS, comments.length, failures, { redactItems: true })
 

@@ -1,9 +1,46 @@
 import type { z } from 'zod'
+import { formatBatchItemError } from '../tool-execution-error.js'
 import { LogLimits } from './constants.js'
 import type { FailureSchema } from './output-schemas.js'
 import type { ToolName } from './tool-names.js'
 
 type BatchFailure = z.infer<typeof FailureSchema>
+
+type SettledBatch<Item, Value> = {
+    /** The items that worked, each with the value it settled to and its input index. */
+    succeeded: Array<{ item: Item; index: number; value: Value }>
+    /** One failure for each item that didn't, in input order. */
+    failures: BatchFailure[]
+}
+
+/**
+ * Splits a batch's settled results into the items that worked and a failure for
+ * each one that didn't. `settled` lines up with `items`, as `Promise.allSettled`
+ * over them returns it. Each failure names its item with `describe` and explains
+ * it with `formatBatchItemError`, which keeps the API's status and error tag.
+ */
+export function partitionSettled<Item, Value>(
+    items: ReadonlyArray<Item>,
+    settled: ReadonlyArray<PromiseSettledResult<Value>>,
+    describe: (item: Item, index: number) => string,
+): SettledBatch<Item, Value> {
+    const succeeded: SettledBatch<Item, Value>['succeeded'] = []
+    const failures: BatchFailure[] = []
+
+    items.forEach((item, index) => {
+        const result = settled[index]
+        if (result?.status === 'fulfilled') {
+            succeeded.push({ item, index, value: result.value })
+        } else {
+            failures.push({
+                item: describe(item, index),
+                error: formatBatchItemError(result?.reason),
+            })
+        }
+    })
+
+    return { succeeded, failures }
+}
 
 /** Stands in for caller text that must not reach the logs. */
 const REDACTED = '[redacted]'

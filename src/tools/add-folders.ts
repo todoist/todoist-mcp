@@ -1,8 +1,7 @@
 import type { Folder } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { BatchLimits } from '../utils/constants.js'
 import {
     FailureSchema,
@@ -74,18 +73,8 @@ const addFolders = {
             }),
         )
 
-        const created: Folder[] = []
-        const failures: Failure[] = []
-        settled.forEach((result, index) => {
-            if (result.status === 'fulfilled') {
-                created.push(result.value)
-            } else {
-                failures.push({
-                    item: folders[index]?.name ?? `Folder ${index + 1}`,
-                    error: formatBatchItemError(result.reason),
-                })
-            }
-        })
+        const { succeeded, failures } = partitionSettled(folders, settled, (folder) => folder.name)
+        const created = succeeded.map(({ value }) => value)
 
         logBatchFailures(ToolNames.ADD_FOLDERS, folders.length, failures, { redactItems: true })
 

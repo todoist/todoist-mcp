@@ -1,8 +1,7 @@
 import type { Label } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { ColorSchema } from '../utils/colors.js'
 import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema, LabelSchema as LabelOutputSchema } from '../utils/output-schemas.js'
@@ -113,24 +112,10 @@ const updateLabels = {
             }),
         )
 
-        const results: Result[] = []
-        const failures: Array<{ item: string; error: string }> = []
-
-        settled.forEach((result, index) => {
-            if (result.status === 'fulfilled') {
-                results.push(result.value)
-                return
-            }
-            const label = labels[index]
-            failures.push({
-                item: label
-                    ? label.labelType === 'personal'
-                        ? label.id
-                        : label.name
-                    : `Label ${index + 1}`,
-                error: formatBatchItemError(result.reason),
-            })
-        })
+        const { succeeded, failures } = partitionSettled(labels, settled, (label) =>
+            label.labelType === 'personal' ? label.id : label.name,
+        )
+        const results = succeeded.map(({ value }) => value)
 
         // A shared label is identified by its name, which is the caller's own text.
         logBatchFailures(ToolNames.UPDATE_LABELS, labels.length, failures, { redactItems: true })

@@ -1,9 +1,8 @@
 import { PROJECT_VIEW_STYLES, type PersonalProject, type WorkspaceProject } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
 import { mapProject } from '../tool-helpers.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { ColorSchema } from '../utils/colors.js'
 import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema, ProjectSchema as ProjectOutputSchema } from '../utils/output-schemas.js'
@@ -108,23 +107,15 @@ const updateProjects = {
             }),
         )
 
+        const { succeeded, failures } = partitionSettled(projects, settled, (project) => project.id)
         const updatedProjects: ReturnType<typeof mapProject>[] = []
-        const failures: Array<{ item: string; error: string }> = []
         let skippedNoFields = 0
         let skippedNoValidValues = 0
 
-        for (const [index, result] of settled.entries()) {
-            if (result.status === 'rejected') {
-                failures.push({
-                    item: projects[index]?.id ?? `Project ${index + 1}`,
-                    error: formatBatchItemError(result.reason),
-                })
-                continue
-            }
-
-            if (result.value.kind === 'updated') {
-                updatedProjects.push(mapProject(result.value.project))
-            } else if (result.value.reason === 'no-fields') {
+        for (const { value } of succeeded) {
+            if (value.kind === 'updated') {
+                updatedProjects.push(mapProject(value.project))
+            } else if (value.reason === 'no-fields') {
                 skippedNoFields++
             } else {
                 skippedNoValidValues++

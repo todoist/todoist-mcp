@@ -1,9 +1,8 @@
 import type { Section } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
 import { isInboxProjectId, resolveInboxProjectId } from '../tool-helpers.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { BatchLimits } from '../utils/constants.js'
 import {
     FailureSchema,
@@ -78,19 +77,12 @@ const addSections = {
             }),
         )
 
-        const newSections: Section[] = []
-        const failures: Array<{ item: string; error: string }> = []
-
-        settled.forEach((result, index) => {
-            if (result.status === 'fulfilled') {
-                newSections.push(result.value)
-            } else {
-                failures.push({
-                    item: sections[index]?.name ?? `Section ${index + 1}`,
-                    error: formatBatchItemError(result.reason),
-                })
-            }
-        })
+        const { succeeded, failures } = partitionSettled(
+            sections,
+            settled,
+            (section) => section.name,
+        )
+        const newSections = succeeded.map(({ value }) => value)
 
         logBatchFailures(ToolNames.ADD_SECTIONS, sections.length, failures, { redactItems: true })
 

@@ -1,8 +1,7 @@
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
 import { mapComment } from '../tool-helpers.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { BatchLimits } from '../utils/constants.js'
 import { CommentSchema as CommentOutputSchema, FailureSchema } from '../utils/output-schemas.js'
 import { appendFailureSummary } from '../utils/response-builders.js'
@@ -56,19 +55,8 @@ const updateComments = {
             ),
         )
 
-        const mappedComments: ReturnType<typeof mapComment>[] = []
-        const failures: Array<{ item: string; error: string }> = []
-
-        settled.forEach((result, index) => {
-            if (result.status === 'fulfilled') {
-                mappedComments.push(mapComment(result.value))
-            } else {
-                failures.push({
-                    item: comments[index]?.id ?? `Comment ${index + 1}`,
-                    error: formatBatchItemError(result.reason),
-                })
-            }
-        })
+        const { succeeded, failures } = partitionSettled(comments, settled, (comment) => comment.id)
+        const mappedComments = succeeded.map(({ value }) => mapComment(value))
 
         logBatchFailures(ToolNames.UPDATE_COMMENTS, comments.length, failures)
 

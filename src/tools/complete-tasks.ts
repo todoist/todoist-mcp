@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { getWriteLimiter } from '../utils/concurrency.js'
 import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema } from '../utils/output-schemas.js'
@@ -32,9 +31,6 @@ const completeTasks = {
     outputSchema: OutputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     async execute(args, client) {
-        const completed: string[] = []
-        const failures: Array<{ item: string; error: string; code?: string }> = []
-
         // Up to the write limit at once: one request per task, one after another,
         // takes a large batch past the time a client waits for a tool call. Each
         // attempt takes its own slot, so a task waiting to retry holds none.
@@ -48,20 +44,8 @@ const completeTasks = {
             ),
         )
 
-        outcomes.forEach((outcome, index) => {
-            const id = args.ids[index] ?? `Task ${index + 1}`
-            if (outcome.status === 'fulfilled') {
-                completed.push(id)
-                return
-            }
-            // `formatBatchItemError` keeps the status and error tag, so a
-            // quota rejection stays distinguishable from a missing task
-            // once the failures are aggregated.
-            failures.push({
-                item: id,
-                error: formatBatchItemError(outcome.reason),
-            })
-        })
+        const { succeeded, failures } = partitionSettled(args.ids, outcomes, (id) => id)
+        const completed = succeeded.map(({ item }) => item)
 
         logBatchFailures(ToolNames.COMPLETE_TASKS, args.ids.length, failures)
 

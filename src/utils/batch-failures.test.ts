@@ -1,4 +1,4 @@
-import { logBatchFailures } from './batch-failures.js'
+import { logBatchFailures, partitionSettled } from './batch-failures.js'
 import { LogLimits } from './constants.js'
 
 describe('logBatchFailures', () => {
@@ -92,5 +92,43 @@ describe('logBatchFailures', () => {
         logBatchFailures('complete-tasks', 2, [])
 
         expect(consoleErrorSpy).not.toHaveBeenCalled()
+    })
+})
+
+describe('partitionSettled', () => {
+    it('keeps each item that worked with its value and index, and names each that failed', () => {
+        const items = [{ name: 'Work' }, { name: 'Home' }, { name: 'Errands' }]
+        const settled: PromiseSettledResult<string>[] = [
+            { status: 'fulfilled', value: 'label-1' },
+            {
+                status: 'rejected',
+                reason: Object.assign(new Error('Bad Gateway'), { httpStatusCode: 502 }),
+            },
+            { status: 'fulfilled', value: 'label-3' },
+        ]
+
+        const { succeeded, failures } = partitionSettled(items, settled, (item) => item.name)
+
+        expect(succeeded).toEqual([
+            { item: { name: 'Work' }, index: 0, value: 'label-1' },
+            { item: { name: 'Errands' }, index: 2, value: 'label-3' },
+        ])
+        expect(failures).toEqual([{ item: 'Home', error: 'Bad Gateway (HTTP 502)' }])
+    })
+
+    it('passes the index to describe, for items named by position', () => {
+        const { failures } = partitionSettled(
+            ['task-a', 'task-b'],
+            [
+                { status: 'rejected', reason: new Error('Task not found') },
+                { status: 'rejected', reason: new Error('Task not found') },
+            ],
+            (taskId, index) => `Reminder ${index + 1} on task ${taskId}`,
+        )
+
+        expect(failures.map((failure) => failure.item)).toEqual([
+            'Reminder 1 on task task-a',
+            'Reminder 2 on task task-b',
+        ])
     })
 })

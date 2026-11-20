@@ -1,8 +1,7 @@
 import type { Label } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { ColorSchema } from '../utils/colors.js'
 import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema, LabelSchema as LabelOutputSchema } from '../utils/output-schemas.js'
@@ -53,19 +52,8 @@ const addLabels = {
             labels.map((label) => executeCreateWithRetry(() => client.addLabel(label))),
         )
 
-        const newLabels: Label[] = []
-        const failures: Array<{ item: string; error: string }> = []
-
-        settled.forEach((result, index) => {
-            if (result.status === 'fulfilled') {
-                newLabels.push(result.value)
-            } else {
-                failures.push({
-                    item: labels[index]?.name ?? `Label ${index + 1}`,
-                    error: formatBatchItemError(result.reason),
-                })
-            }
-        })
+        const { succeeded, failures } = partitionSettled(labels, settled, (label) => label.name)
+        const newLabels = succeeded.map(({ value }) => value)
 
         logBatchFailures(ToolNames.ADD_LABELS, labels.length, failures, { redactItems: true })
 
