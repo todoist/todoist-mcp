@@ -1,5 +1,6 @@
 import type {
     CurrentUser,
+    CustomFetchResponse,
     Filter,
     Folder,
     Label,
@@ -176,6 +177,22 @@ export function createMockWorkspaceProjectSummary(
         isPendingDefaultCollaboratorInvites: false,
         url: 'https://app.todoist.com/app/project/sales-pipeline-unjoined-project-id',
         ...overrides,
+    }
+}
+
+/**
+ * Answers a `customFetch` call with `payload` as its JSON body, in the shape the
+ * SDK reads. For `*.sdk.test.ts`, which run the real `TodoistApi`.
+ */
+export function toFetchResponse(payload: unknown): CustomFetchResponse {
+    const response = Response.json(payload)
+    return {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers),
+        text: () => response.text(),
+        json: () => response.json(),
     }
 }
 

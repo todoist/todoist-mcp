@@ -1,5 +1,9 @@
 import { type PersonalProject, TodoistApi, type WorkspaceProject } from '@todoist/sdk'
-import { createMockProject, createMockWorkspaceProject } from '../utils/test-helpers.js'
+import {
+    createMockProject,
+    createMockWorkspaceProject,
+    toFetchResponse,
+} from '../utils/test-helpers.js'
 import { addProjects } from './add-projects.js'
 
 function toApiProject(project: PersonalProject | WorkspaceProject) {
@@ -60,15 +64,7 @@ describe('Personal project limits through the real SDK', () => {
                         default:
                             throw new Error(`Unexpected request: ${init?.method} ${url}`)
                     }
-                    const response = Response.json(payload)
-                    return {
-                        ok: response.ok,
-                        status: response.status,
-                        statusText: response.statusText,
-                        headers: Object.fromEntries(response.headers),
-                        text: () => response.text(),
-                        json: () => response.json(),
-                    }
+                    return toFetchResponse(payload)
                 },
             })
 
@@ -133,15 +129,7 @@ describe('Creating a project in a folder through the real SDK', () => {
                     default:
                         throw new Error(`Unexpected request: ${init?.method} ${url}`)
                 }
-                const response = Response.json(payload)
-                return {
-                    ok: response.ok,
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers: Object.fromEntries(response.headers),
-                    text: () => response.text(),
-                    json: () => response.json(),
-                }
+                return toFetchResponse(payload)
             },
         })
 

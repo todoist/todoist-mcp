@@ -1,4 +1,5 @@
 import { TodoistApi } from '@todoist/sdk'
+import { toFetchResponse } from '../utils/test-helpers.js'
 import { importProjectTemplate } from './import-project-template.js'
 
 describe('CSV template import through the real SDK', () => {
@@ -19,7 +20,7 @@ describe('CSV template import through the real SDK', () => {
                     content: Buffer.from(await file.arrayBuffer()).toString('utf8'),
                     projectId: form.get('project_id'),
                 }
-                const response = Response.json({
+                return toFetchResponse({
                     status: 'ok',
                     template_type: 'project',
                     projects: [],
@@ -27,14 +28,6 @@ describe('CSV template import through the real SDK', () => {
                     tasks: [],
                     comments: [],
                 })
-                return {
-                    ok: response.ok,
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers: Object.fromEntries(response.headers),
-                    text: () => response.text(),
-                    json: () => response.json(),
-                }
             },
         })
 
