@@ -2,7 +2,12 @@ import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { resetLimitersForTesting } from '../utils/concurrency.js'
 import { ConcurrencyLimits } from '../utils/constants.js'
-import { allApplied, answerTaskReopens, createApiError } from '../utils/test-helpers.js'
+import {
+    allApplied,
+    answerTaskReopens,
+    createApiError,
+    sentSyncCommands,
+} from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { uncompleteTasks } from './uncomplete-tasks.js'
 
@@ -143,7 +148,7 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
         it('should continue processing remaining tasks after failures', async () => {
             // Mock various failure scenarios
             reopenTask
-                .mockRejectedValueOnce(new Error('Task already active'))
+                .mockRejectedValueOnce(forbidden())
                 .mockRejectedValueOnce(itemNotFound())
                 .mockResolvedValueOnce(true) // task-3 succeeds
                 .mockRejectedValueOnce(forbidden())
@@ -163,12 +168,12 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
         it('should handle different types of API errors', async () => {
             reopenTask
                 .mockRejectedValueOnce(itemNotFound())
-                .mockRejectedValueOnce(new Error('Task already active'))
                 .mockRejectedValueOnce(forbidden())
-                .mockRejectedValueOnce(new Error('Rate limit exceeded'))
+                .mockRejectedValueOnce(forbidden())
+                .mockRejectedValueOnce(itemNotFound())
 
             const result = await uncompleteTasks.execute(
-                { ids: ['not-found', 'already-active', 'no-permission', 'rate-limited'] },
+                { ids: ['not-found', 'no-permission', 'also-no-permission', 'also-not-found'] },
                 mockTodoistApi,
             )
 
@@ -185,7 +190,7 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
             reopenTask
                 .mockResolvedValueOnce(true) // regular task reopen
                 .mockResolvedValueOnce(true) // another successful reopen
-                .mockRejectedValueOnce(new Error('Task already active')) // duplicate reopen
+                .mockRejectedValueOnce(forbidden()) // a project they can't edit
                 .mockResolvedValueOnce(true) // successful reopen
                 .mockRejectedValueOnce(itemNotFound()) // deleted task
 
@@ -285,10 +290,6 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
     })
 
     describe('one Sync request per batch', () => {
-        function sentCommands() {
-            return mockTodoistApi.sync.mock.calls.flatMap(([request]) => request.commands ?? [])
-        }
-
         it('reopens the whole batch in one request, in input order', async () => {
             reopenTask.mockResolvedValue(true)
 
@@ -298,7 +299,7 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
             )
 
             expect(mockTodoistApi.sync).toHaveBeenCalledOnce()
-            expect(sentCommands()).toEqual(
+            expect(sentSyncCommands(mockTodoistApi)).toEqual(
                 ['task-1', 'task-2', 'task-3'].map((id) =>
                     expect.objectContaining({ type: 'item_uncomplete', args: { id } }),
                 ),

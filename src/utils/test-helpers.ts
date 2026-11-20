@@ -338,6 +338,11 @@ export function answerTaskReopens(
     })
 }
 
+/** Every command the `sync` mock was sent, across all its calls, in order. */
+export function sentSyncCommands(client: Mocked<TodoistApi>): SyncCommand[] {
+    return client.sync.mock.calls.flatMap(([request]) => request.commands ?? [])
+}
+
 /**
  * Applies each command a `sync` call carries with `apply`, reporting it as applied
  * or with the error status the API would give. `apply` returns the ID of anything

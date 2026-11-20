@@ -6,6 +6,7 @@ import { convertPriorityToNumber } from '../utils/priorities.js'
 import {
     allApplied,
     answerTaskCreates,
+    sentSyncCommands,
     createApiError,
     createMockProject,
     createMockSection,
@@ -1409,10 +1410,6 @@ describe(`${ADD_TASKS} tool`, () => {
     })
 
     describe('one Sync request per batch', () => {
-        function sentCommands() {
-            return mockTodoistApi.sync.mock.calls.flatMap(([request]) => request.commands ?? [])
-        }
-
         it('creates the whole batch in one request, in input order, and reads it back once', async () => {
             createTask.mockImplementation(async (args) =>
                 createMockTask({ id: `id-${args.content}`, content: args.content }),
@@ -1430,7 +1427,7 @@ describe(`${ADD_TASKS} tool`, () => {
             )
 
             expect(mockTodoistApi.sync).toHaveBeenCalledOnce()
-            expect(sentCommands()).toEqual([
+            expect(sentSyncCommands(mockTodoistApi)).toEqual([
                 expect.objectContaining({
                     type: 'item_add',
                     args: expect.objectContaining({
@@ -1469,7 +1466,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(sentCommands().map((command) => command.args)).toEqual([
+            expect(sentSyncCommands(mockTodoistApi).map((command) => command.args)).toEqual([
                 expect.objectContaining({ content: 'First' }),
                 expect.objectContaining({ content: 'Third' }),
             ])
@@ -1586,7 +1583,7 @@ describe(`${ADD_TASKS} tool`, () => {
 
                 expect(result.structuredContent.successCount).toBe(3)
                 expect(validateSpy).toHaveBeenCalledOnce()
-                expect(sentCommands().map((command) => command.args)).toEqual(
+                expect(sentSyncCommands(mockTodoistApi).map((command) => command.args)).toEqual(
                     Array(3).fill(expect.objectContaining({ responsibleUid: 'me-id' })),
                 )
             } finally {
@@ -1673,7 +1670,7 @@ describe(`${ADD_TASKS} tool`, () => {
             )
 
             expect(result.structuredContent.successCount).toBe(3)
-            expect(sentCommands().map((command) => command.args)).toEqual(
+            expect(sentSyncCommands(mockTodoistApi).map((command) => command.args)).toEqual(
                 Array(3).fill(expect.objectContaining({ responsibleUid: 'user-ada' })),
             )
             expect(mockTodoistApi.getProject).toHaveBeenCalledOnce()

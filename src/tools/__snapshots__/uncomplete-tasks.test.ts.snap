@@ -37,7 +37,7 @@ Reopened:
     8485093749
     8485093751.
 Failed (2):
-    8485093750 (Error: Task already active (HTTP 400, code 0))
+    8485093750 (Error: Insufficient permissions (HTTP 403, code 39, tag FORBIDDEN))
     8485093752 (Error: Item not found (HTTP 400, code 22, tag ITEM_NOT_FOUND))."
 `;
 
@@ -69,7 +69,7 @@ Reopened:
     task-3
     task-5.
 Failed (3):
-    task-1 (Error: Task already active (HTTP 400, code 0))
+    task-1 (Error: Insufficient permissions (HTTP 403, code 39, tag FORBIDDEN))
     task-2 (Error: Item not found (HTTP 400, code 22, tag ITEM_NOT_FOUND))
     task-4 (Error: Insufficient permissions (HTTP 403, code 39, tag FORBIDDEN))."
 `;
@@ -85,8 +85,8 @@ exports[`uncomplete-tasks tool > uncompleting multiple tasks > should handle dif
 "Uncompleted tasks: 0/4 successful.
 Failed (4):
     not-found (Error: Item not found (HTTP 400, code 22, tag ITEM_NOT_FOUND))
-    already-active (Error: Task already active (HTTP 400, code 0))
-    no-permission (Error: Insufficient permissions (HTTP 403, code 39, tag FORBIDDEN)), +1 more."
+    no-permission (Error: Insufficient permissions (HTTP 403, code 39, tag FORBIDDEN))
+    also-no-permission (Error: Insufficient permissions (HTTP 403, code 39, tag FORBIDDEN)), +1 more."
 `;
 
 exports[`uncomplete-tasks tool > uncompleting multiple tasks > should handle partial failures gracefully 1`] = `

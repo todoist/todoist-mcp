@@ -5,6 +5,7 @@ import { ConcurrencyLimits } from '../utils/constants.js'
 import {
     allApplied,
     answerTaskCloses,
+    sentSyncCommands,
     createApiError,
     createMockTask,
 } from '../utils/test-helpers.js'
@@ -284,10 +285,6 @@ describe(`${COMPLETE_TASKS} tool`, () => {
     })
 
     describe('one Sync request per batch', () => {
-        function sentCommands() {
-            return mockTodoistApi.sync.mock.calls.flatMap(([request]) => request.commands ?? [])
-        }
-
         it('closes the whole batch in one request, in input order', async () => {
             closeTask.mockResolvedValue(true)
 
@@ -297,7 +294,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
             )
 
             expect(mockTodoistApi.sync).toHaveBeenCalledOnce()
-            expect(sentCommands()).toEqual(
+            expect(sentSyncCommands(mockTodoistApi)).toEqual(
                 ['task-1', 'task-2', 'task-3'].map((id) =>
                     expect.objectContaining({ type: 'item_close', args: { id } }),
                 ),
@@ -317,7 +314,9 @@ describe(`${COMPLETE_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(sentCommands().map((command) => command.args)).toEqual([{ id: 'task-1' }])
+            expect(sentSyncCommands(mockTodoistApi).map((command) => command.args)).toEqual([
+                { id: 'task-1' },
+            ])
             expect(result.structuredContent.completed).toEqual(['task-1'])
             expect(result.structuredContent.failures).toEqual([
                 {
@@ -342,7 +341,9 @@ describe(`${COMPLETE_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(sentCommands().map((command) => command.args)).toEqual([{ id: 'task-1' }])
+            expect(sentSyncCommands(mockTodoistApi).map((command) => command.args)).toEqual([
+                { id: 'task-1' },
+            ])
             expect(result.structuredContent.failures).toEqual([
                 { item: 'done-1', error: 'Task is already completed.' },
             ])
@@ -394,7 +395,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(sentCommands().map((command) => command.args)).toEqual([
+            expect(sentSyncCommands(mockTodoistApi).map((command) => command.args)).toEqual([
                 { id: 'task-1' },
                 { id: 'task-2' },
             ])
@@ -428,7 +429,9 @@ describe(`${COMPLETE_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(sentCommands().map((command) => command.args)).toEqual([{ id: 'task-1' }])
+            expect(sentSyncCommands(mockTodoistApi).map((command) => command.args)).toEqual([
+                { id: 'task-1' },
+            ])
             expect(result.structuredContent.failures).toEqual([
                 { item: 'done-1', error: 'Task is already completed.' },
             ])

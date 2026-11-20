@@ -6,7 +6,9 @@ import {
     TodoistSyncError,
 } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { createLimiter } from './concurrency.js'
 import { settleSyncCommands } from './sync-commands.js'
+import { allApplied } from './test-helpers.js'
 
 const mockTodoistApi = {
     sync: vi.fn(),
@@ -98,5 +100,34 @@ describe('settleSyncCommands', () => {
             { status: 'rejected', reason: requestError },
         ])
         expect(result.tempIdMapping).toEqual({})
+    })
+
+    it('holds no limiter slot while waiting to retry, so other requests can go', async () => {
+        vi.useFakeTimers()
+        try {
+            const limit = createLimiter(1)
+            mockTodoistApi.sync
+                .mockRejectedValueOnce(
+                    Object.assign(new Error('Service Unavailable'), { httpStatusCode: 503 }),
+                )
+                .mockImplementation(async ({ commands = [] }) => ({
+                    syncStatus: allApplied(commands),
+                    tempIdMapping: {},
+                }))
+
+            const retrying = settleSyncCommands(mockTodoistApi, createCommands(), { limit })
+            const queued = settleSyncCommands(mockTodoistApi, createCommands(), { limit })
+            // Shorter than any retry delay: the first request is still waiting to retry.
+            await vi.advanceTimersByTimeAsync(10)
+
+            expect(mockTodoistApi.sync).toHaveBeenCalledTimes(2)
+
+            await vi.runAllTimersAsync()
+            const results = await Promise.all([retrying, queued])
+            expect(mockTodoistApi.sync).toHaveBeenCalledTimes(3)
+            expect(results.map(({ requestFailed }) => requestFailed)).toEqual([false, false])
+        } finally {
+            vi.useRealTimers()
+        }
     })
 })
