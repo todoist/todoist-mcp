@@ -8,9 +8,9 @@ export const PRIORITY_INPUT_DESCRIPTION =
 
 export const PrioritySchema = z.enum(PRIORITY_VALUES).describe(PRIORITY_INPUT_DESCRIPTION)
 
-export function convertPriorityToNumber(priority: Priority): number {
+export function convertPriorityToNumber(priority: Priority): 1 | 2 | 3 | 4 {
     // Todoist API uses inverse mapping: p1=4 (highest), p2=3, p3=2, p4=1 (lowest)
-    const priorityMap = { p1: 4, p2: 3, p3: 2, p4: 1 }
+    const priorityMap = { p1: 4, p2: 3, p3: 2, p4: 1 } as const
     return priorityMap[priority]
 }
 

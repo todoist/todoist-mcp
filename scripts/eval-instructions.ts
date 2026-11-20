@@ -67,6 +67,9 @@ const EVAL_FOLDERS = {
     totalCount: 1,
 } satisfies StructuredOutput<typeof findFolders>
 
+/** A list longer than add-tasks once took in one call, for the bulk-add scenario. */
+const BULK_TASK_NAMES = Array.from({ length: 40 }, (_, index) => `Migrate page ${index + 1}`)
+
 /** First item of a batch tool's array argument, e.g. add-tasks' `tasks`. */
 function firstItem(input: Record<string, unknown>, key: string): Record<string, unknown> | null {
     const list = input[key]
@@ -381,6 +384,20 @@ const SCENARIOS: Scenario[] = [
                 ? null
                 : `not a delete of folder ${EVAL_FOLDER_ID}: ${JSON.stringify(input)}`,
         guards: 'delete-object folder: deleting a folder',
+    },
+    {
+        // A migration hands over long lists. add-tasks takes up to 100 tasks in one
+        // call, so a list of 40 should go in whole rather than in several calls.
+        id: 'bulk-add-one-call',
+        prompt: `Add these tasks to project 6XQ3Web123: ${BULK_TASK_NAMES.map((name) => `"${name}"`).join(', ')}.`,
+        expect: [ToolNames.ADD_TASKS],
+        check: (input) => {
+            const tasks = Array.isArray(input.tasks) ? input.tasks : []
+            return tasks.length === BULK_TASK_NAMES.length
+                ? null
+                : `sent ${tasks.length} of ${BULK_TASK_NAMES.length} tasks in the first call`
+        },
+        guards: 'add-tasks input schema: up to 100 tasks per call',
     },
 ]
 

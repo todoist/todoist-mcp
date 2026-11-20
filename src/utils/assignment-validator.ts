@@ -34,6 +34,14 @@ export type Assignment = {
     responsibleUid: string
 }
 
+export type AssignmentLookups = {
+    /**
+     * Reads the target project. A batch passes its own lookup so a project it has
+     * already read isn't fetched again for every task assigned in it.
+     */
+    lookUpProject?: (projectId: string) => Promise<Project>
+}
+
 export class AssignmentValidator {
     /**
      * Validate a single assignment operation
@@ -41,6 +49,7 @@ export class AssignmentValidator {
     async validateAssignment(
         client: TodoistApi,
         assignment: Assignment,
+        { lookUpProject = (id) => client.getProject(id) }: AssignmentLookups = {},
     ): Promise<ValidationResult> {
         const { taskId, projectId, responsibleUid } = assignment
 
@@ -71,7 +80,7 @@ export class AssignmentValidator {
 
         // Validate the project exists and is accessible
         try {
-            const targetProject = await client.getProject(projectId)
+            const targetProject = await lookUpProject(projectId)
 
             // Check if project is shared (required for assignments)
             if (!targetProject.isShared) {
@@ -186,11 +195,9 @@ export class AssignmentValidator {
         client: TodoistApi,
         projectId: string,
         responsibleUid: string,
+        lookups: AssignmentLookups = {},
     ): Promise<ValidationResult> {
-        return this.validateAssignment(client, {
-            projectId,
-            responsibleUid,
-        })
+        return this.validateAssignment(client, { projectId, responsibleUid }, lookups)
     }
 
     /**

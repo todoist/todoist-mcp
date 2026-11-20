@@ -109,7 +109,7 @@ type TodoistTool<
 
 **Canonical examples:**
 
-- `src/tools/add-tasks.ts` — batch create, array input w/ `.max(25)`, success/failure aggregation
+- `src/tools/add-tasks.ts` — batch create through one Sync request (checks each item first, reads the created tasks back), array input w/ `.max(100)`, success/failure aggregation
 - `src/tools/find-tasks.ts` — filter + pagination + cursor pattern
 - `src/tools/update-tasks.ts` — partial updates, `"remove"` clearing pattern
 

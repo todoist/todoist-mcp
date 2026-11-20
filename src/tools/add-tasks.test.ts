@@ -1,34 +1,48 @@
 import type { Task, TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { z } from 'zod'
 import { assignmentValidator } from '../utils/assignment-validator.js'
 import { convertPriorityToNumber } from '../utils/priorities.js'
 import {
+    answerTaskCreates,
+    createApiError,
     createMockProject,
     createMockSection,
     createMockTask,
     mockUnjoinedWorkspaceProject,
     TEST_IDS,
+    type TaskCreateArgs,
     TODAY,
 } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
+import { userResolver } from '../utils/user-resolver.js'
 import { addTasks, MAX_TASKS_PER_OPERATION } from './add-tasks.js'
 
 // Mock the Todoist API
 const mockTodoistApi = {
-    addTask: vi.fn(),
+    sync: vi.fn(),
+    getTasks: vi.fn(),
+    getTask: vi.fn(),
     getProject: vi.fn(),
     getSection: vi.fn(),
     getUser: vi.fn(),
     getWorkspaces: vi.fn(),
     getWorkspaceActiveProjects: vi.fn(),
+    getProjects: vi.fn(),
+    getProjectCollaborators: vi.fn(),
 } as unknown as Mocked<TodoistApi>
+
+// Answers each task the Sync request creates, like a create endpoint would
+const createTask = vi.fn<(args: TaskCreateArgs) => Promise<Task>>()
 
 const { ADD_TASKS } = ToolNames
 
 describe(`${ADD_TASKS} tool`, () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        createTask.mockReset()
         mockTodoistApi.getProject.mockResolvedValue(createMockProject())
+        answerTaskCreates(mockTodoistApi, createTask)
     })
 
     describe('adding multiple tasks', () => {
@@ -59,7 +73,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 },
             })
 
-            mockTodoistApi.addTask
+            createTask
                 .mockResolvedValueOnce(mockApiResponse1)
                 .mockResolvedValueOnce(mockApiResponse2)
 
@@ -83,7 +97,7 @@ describe(`${ADD_TASKS} tool`, () => {
             )
 
             // Verify API was called correctly for each task
-            expect(mockTodoistApi.addTask).toHaveBeenCalledTimes(2)
+            expect(createTask).toHaveBeenCalledTimes(2)
 
             // Verify result is a concise summary
             expect(result.textContent).toMatchSnapshot()
@@ -118,7 +132,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 addedAt: new Date('2025-08-13T22:09:58.123456Z'),
             })
 
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             const result = await addTasks.execute(
                 {
@@ -136,13 +150,14 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith({
+            expect(createTask).toHaveBeenCalledWith({
                 content: 'Subtask content',
                 description: 'Subtask description',
                 priority: convertPriorityToNumber('p3'),
                 projectId: '6cfCcrrCFg2xP94Q',
                 sectionId: 'section-123',
                 parentId: 'parent-task-456',
+                autoReminder: true,
             })
 
             // Verify result is a concise summary
@@ -178,7 +193,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 addedAt: new Date('2025-08-13T22:09:57.123456Z'),
             })
 
-            mockTodoistApi.addTask
+            createTask
                 .mockResolvedValueOnce(mockApiResponse1)
                 .mockResolvedValueOnce(mockApiResponse2)
 
@@ -228,7 +243,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 addedAt: new Date('2025-08-13T22:09:56.123456Z'),
             })
 
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             // Test different duration formats
             const testCases = [
@@ -241,7 +256,7 @@ describe(`${ADD_TASKS} tool`, () => {
             ]
 
             for (const testCase of testCases) {
-                mockTodoistApi.addTask.mockClear()
+                createTask.mockClear()
 
                 await addTasks.execute(
                     {
@@ -256,17 +271,16 @@ describe(`${ADD_TASKS} tool`, () => {
                     mockTodoistApi,
                 )
 
-                expect(mockTodoistApi.addTask).toHaveBeenCalledWith(
+                expect(createTask).toHaveBeenCalledWith(
                     expect.objectContaining({
-                        duration: testCase.expectedAmount,
-                        durationUnit: testCase.expectedUnit,
+                        duration: { amount: testCase.expectedAmount, unit: testCase.expectedUnit },
                     }),
                 )
             }
         })
 
         it('should add a task with a day-based duration', async () => {
-            mockTodoistApi.addTask.mockResolvedValue(
+            createTask.mockResolvedValue(
                 createMockTask({
                     id: '8485093755',
                     content: 'Four day task',
@@ -283,8 +297,8 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith(
-                expect.objectContaining({ duration: 4, durationUnit: 'day' }),
+            expect(createTask).toHaveBeenCalledWith(
+                expect.objectContaining({ duration: { amount: 4, unit: 'day' } }),
             )
             expect(result.structuredContent.tasks[0]?.duration).toBe('4d')
         })
@@ -301,7 +315,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 addedAt: new Date('2025-08-13T22:09:56.123456Z'),
             })
 
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             const result = await addTasks.execute(
                 {
@@ -317,12 +331,13 @@ describe(`${ADD_TASKS} tool`, () => {
             )
 
             // Verify API was called with deadline
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith({
+            expect(createTask).toHaveBeenCalledWith({
                 content: 'Task with deadline',
                 projectId: '6cfCcrrCFg2xP94Q',
                 sectionId: undefined,
                 parentId: undefined,
-                deadlineDate: '2025-12-31',
+                deadline: { date: '2025-12-31' },
+                autoReminder: true,
             })
 
             // Verify result is a concise summary
@@ -355,7 +370,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 addedAt: new Date('2025-08-13T22:09:56.123456Z'),
             })
 
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             const result = await addTasks.execute(
                 {
@@ -370,12 +385,13 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith({
+            expect(createTask).toHaveBeenCalledWith({
                 content: 'Task with labels',
                 labels: ['urgent', 'work'],
                 projectId: '6cfCcrrCFg2xP94Q',
                 sectionId: undefined,
                 parentId: undefined,
+                autoReminder: true,
             })
 
             // Verify structured content includes labels
@@ -395,7 +411,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 addedAt: new Date('2025-08-13T22:09:56.123456Z'),
             })
 
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             await addTasks.execute(
                 {
@@ -410,12 +426,13 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith({
+            expect(createTask).toHaveBeenCalledWith({
                 content: 'Task with empty labels',
                 labels: [],
                 projectId: '6cfCcrrCFg2xP94Q',
                 sectionId: undefined,
                 parentId: undefined,
+                autoReminder: true,
             })
         })
 
@@ -427,7 +444,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 addedAt: new Date('2025-08-13T22:09:56.123456Z'),
             })
 
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             await addTasks.execute(
                 {
@@ -441,12 +458,13 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith({
+            expect(createTask).toHaveBeenCalledWith({
                 content: 'Task without labels',
                 labels: undefined,
                 projectId: '6cfCcrrCFg2xP94Q',
                 sectionId: undefined,
                 parentId: undefined,
+                autoReminder: true,
             })
         })
 
@@ -466,7 +484,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 labels: ['work', 'urgent', 'review'],
             })
 
-            mockTodoistApi.addTask
+            createTask
                 .mockResolvedValueOnce(mockApiResponse1)
                 .mockResolvedValueOnce(mockApiResponse2)
                 .mockResolvedValueOnce(mockApiResponse3)
@@ -493,7 +511,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.addTask).toHaveBeenCalledTimes(3)
+            expect(createTask).toHaveBeenCalledTimes(3)
         })
     })
 
@@ -519,7 +537,7 @@ describe(`${ADD_TASKS} tool`, () => {
 
         it('should report a single failed task as a failure (all-fail case)', async () => {
             const apiError = new Error('API Error: Bad Request')
-            mockTodoistApi.addTask.mockRejectedValue(apiError)
+            createTask.mockRejectedValue(apiError)
 
             const result = await addTasks.execute(
                 { tasks: [{ content: 'Test task', projectId: '6cfCcrrCFg2xP94Q' }] },
@@ -538,9 +556,7 @@ describe(`${ADD_TASKS} tool`, () => {
             })
 
             const apiError = new Error('API Error: Second task failed')
-            mockTodoistApi.addTask
-                .mockResolvedValueOnce(mockApiResponse)
-                .mockRejectedValueOnce(apiError)
+            createTask.mockResolvedValueOnce(mockApiResponse).mockRejectedValueOnce(apiError)
 
             const result = await addTasks.execute(
                 {
@@ -564,7 +580,7 @@ describe(`${ADD_TASKS} tool`, () => {
             expect(result.structuredContent.failures[0]).toEqual(
                 expect.objectContaining({
                     item: 'Second task content',
-                    error: 'API Error: Second task failed',
+                    error: 'API Error: Second task failed (HTTP 400, code 0)',
                 }),
             )
 
@@ -575,7 +591,7 @@ describe(`${ADD_TASKS} tool`, () => {
         it('returns structured failures when every task in the batch fails', async () => {
             const apiError1 = new Error('API Error: First task failed')
             const apiError2 = new Error('API Error: Second task failed')
-            mockTodoistApi.addTask.mockRejectedValueOnce(apiError1).mockRejectedValueOnce(apiError2)
+            createTask.mockRejectedValueOnce(apiError1).mockRejectedValueOnce(apiError2)
 
             const result = await addTasks.execute(
                 {
@@ -591,27 +607,42 @@ describe(`${ADD_TASKS} tool`, () => {
             expect(result.structuredContent.successCount).toBe(0)
             expect(result.structuredContent.failureCount).toBe(2)
             expect(result.structuredContent.failures).toEqual([
-                { item: 'First task', error: 'API Error: First task failed' },
-                { item: 'Second task', error: 'API Error: Second task failed' },
+                { item: 'First task', error: 'API Error: First task failed (HTTP 400, code 0)' },
+                { item: 'Second task', error: 'API Error: Second task failed (HTTP 400, code 0)' },
             ])
             expect(result.textContent).toContain('0/2 successful')
         })
 
-        it('does not retry a create that failed with a 502, since the task may exist', async () => {
-            mockTodoistApi.addTask.mockRejectedValueOnce(
-                Object.assign(new Error('Bad Gateway'), { httpStatusCode: 502 }),
-            )
+        it.each([502, 503, 504])(
+            'retries the Sync request after a %i, since Todoist skips commands it already applied',
+            async (status) => {
+                vi.useFakeTimers()
+                try {
+                    mockTodoistApi.sync.mockRejectedValueOnce(
+                        Object.assign(new Error('Gateway trouble'), { httpStatusCode: status }),
+                    )
+                    createTask.mockResolvedValueOnce(
+                        createMockTask({ id: 'task-retry', content: 'Retry me' }),
+                    )
 
-            const result = await addTasks.execute(
-                { tasks: [{ content: 'Maybe created' }] },
-                mockTodoistApi,
-            )
+                    const promise = addTasks.execute(
+                        { tasks: [{ content: 'Retry me' }] },
+                        mockTodoistApi,
+                    )
+                    await vi.runAllTimersAsync()
+                    const result = await promise
 
-            expect(mockTodoistApi.addTask).toHaveBeenCalledOnce()
-            expect(result.structuredContent.failures).toEqual([
-                { item: 'Maybe created', error: 'Bad Gateway (HTTP 502)' },
-            ])
-        })
+                    expect(mockTodoistApi.sync).toHaveBeenCalledTimes(2)
+                    // The retry carries the same command, so Todoist can tell it apart
+                    // from a second create.
+                    const [first, second] = mockTodoistApi.sync.mock.calls
+                    expect(second?.[0].commands?.[0]?.uuid).toBe(first?.[0].commands?.[0]?.uuid)
+                    expect(result.structuredContent.successCount).toBe(1)
+                } finally {
+                    vi.useRealTimers()
+                }
+            },
+        )
 
         it('retries a transient 5xx failure while looking up the project', async () => {
             vi.useFakeTimers()
@@ -622,7 +653,7 @@ describe(`${ADD_TASKS} tool`, () => {
                         Object.assign(new Error('Bad Gateway'), { httpStatusCode: 502 }),
                     )
                     .mockResolvedValueOnce(createMockProject({ id: '6cfCcrrCFg2xP94Q' }))
-                mockTodoistApi.addTask.mockResolvedValueOnce(createMockTask({ content: 'Lookup' }))
+                createTask.mockResolvedValueOnce(createMockTask({ content: 'Lookup' }))
 
                 const promise = addTasks.execute(
                     { tasks: [{ content: 'Lookup', projectId: '6cfCcrrCFg2xP94Q' }] },
@@ -633,32 +664,6 @@ describe(`${ADD_TASKS} tool`, () => {
 
                 expect(mockTodoistApi.getProject).toHaveBeenCalledTimes(2)
                 expect(result.structuredContent.successCount).toBe(1)
-            } finally {
-                vi.useRealTimers()
-            }
-        })
-
-        it('retries a transient 5xx failure on a per-task call', async () => {
-            vi.useFakeTimers()
-            try {
-                mockTodoistApi.addTask
-                    .mockRejectedValueOnce(
-                        Object.assign(new Error('Service Unavailable'), { httpStatusCode: 503 }),
-                    )
-                    .mockResolvedValueOnce(
-                        createMockTask({ id: 'task-retry', content: 'Retry me' }),
-                    )
-
-                const promise = addTasks.execute(
-                    { tasks: [{ content: 'Retry me' }] },
-                    mockTodoistApi,
-                )
-                await vi.runAllTimersAsync()
-                const result = await promise
-
-                expect(mockTodoistApi.addTask).toHaveBeenCalledTimes(2)
-                expect(result.structuredContent.successCount).toBe(1)
-                expect(result.structuredContent.failureCount).toBe(0)
             } finally {
                 vi.useRealTimers()
             }
@@ -677,7 +682,7 @@ describe(`${ADD_TASKS} tool`, () => {
                     http_code: 403,
                 },
             })
-            mockTodoistApi.addTask.mockRejectedValue(itemLimitError)
+            createTask.mockRejectedValue(itemLimitError)
 
             const result = await addTasks.execute(
                 { tasks: [{ content: 'One too many', projectId: '6cfCcrrCFg2xP94Q' }] },
@@ -703,9 +708,7 @@ describe(`${ADD_TASKS} tool`, () => {
                     http_code: 403,
                 },
             })
-            mockTodoistApi.addTask
-                .mockResolvedValueOnce(mockApiResponse)
-                .mockRejectedValueOnce(itemLimitError)
+            createTask.mockResolvedValueOnce(mockApiResponse).mockRejectedValueOnce(itemLimitError)
 
             const result = await addTasks.execute(
                 {
@@ -731,9 +734,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 httpStatusCode: 400,
                 responseData: { error: 'Invalid date format' },
             })
-            mockTodoistApi.addTask
-                .mockResolvedValueOnce(createdTask)
-                .mockRejectedValueOnce(invalidDueString)
+            createTask.mockResolvedValueOnce(createdTask).mockRejectedValueOnce(invalidDueString)
 
             const result = await addTasks.execute(
                 {
@@ -756,12 +757,30 @@ describe(`${ADD_TASKS} tool`, () => {
             expect(result.textContent).toContain(expectedRecovery)
         })
 
+        it('returns dueString retry guidance for the error Sync gives an unparseable due string', async () => {
+            createTask.mockRejectedValueOnce(
+                createApiError({ status: 400, error: 'Date is invalid', tag: 'INVALID_DATE' }),
+            )
+
+            const result = await addTasks.execute(
+                { tasks: [{ content: 'Water plants', dueString: 'every blursday' }] },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'Water plants',
+                    error: 'Task "Water plants" wasn\'t created because `dueString` could not be parsed. Change only `dueString` and retry.',
+                },
+            ])
+        })
+
         it('returns dueString retry guidance when every task in the batch fails', async () => {
             const invalidDueString = Object.assign(new Error('HTTP 400: Bad Request'), {
                 httpStatusCode: 400,
                 responseData: { error: 'Invalid date format' },
             })
-            mockTodoistApi.addTask.mockRejectedValue(invalidDueString)
+            createTask.mockRejectedValue(invalidDueString)
 
             const result = await addTasks.execute(
                 {
@@ -794,7 +813,7 @@ describe(`${ADD_TASKS} tool`, () => {
     describe('next steps logic', () => {
         it('should suggest find-tasks-by-date for today when hasToday is true', async () => {
             // Clear any leftover mocks from previous tests
-            mockTodoistApi.addTask.mockClear()
+            createTask.mockClear()
 
             const mockApiResponse: Task = createMockTask({
                 id: '8485093755',
@@ -810,7 +829,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 },
             })
 
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             const result = await addTasks.execute(
                 {
@@ -831,7 +850,7 @@ describe(`${ADD_TASKS} tool`, () => {
 
         it('should suggest overview tool when no hasToday context', async () => {
             // Clear any leftover mocks from previous tests
-            mockTodoistApi.addTask.mockClear()
+            createTask.mockClear()
 
             const mockApiResponse: Task = createMockTask({
                 id: '8485093756',
@@ -840,7 +859,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 addedAt: new Date('2025-08-13T22:09:56.123456Z'),
             })
 
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             const result = await addTasks.execute(
                 {
@@ -863,7 +882,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 addedAt: new Date('2025-08-13T22:09:56.123456Z'),
             })
 
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             const result = await addTasks.execute(
                 {
@@ -876,12 +895,13 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith({
+            expect(createTask).toHaveBeenCalledWith({
                 content: 'Simple inbox task',
                 labels: undefined,
                 projectId: undefined,
                 sectionId: undefined,
                 parentId: undefined,
+                autoReminder: true,
             })
 
             const textContent = result.textContent
@@ -921,7 +941,7 @@ describe(`${ADD_TASKS} tool`, () => {
                         email: 'user@example.com',
                     },
                 })
-            mockTodoistApi.addTask.mockResolvedValue(
+            createTask.mockResolvedValue(
                 createMockTask({ id: '8485099001', content: 'Section task' }),
             )
 
@@ -944,10 +964,11 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
                 TEST_IDS.PROJECT_WORK,
                 'user@example.com',
+                { lookUpProject: expect.any(Function) },
             )
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith(
+            expect(createTask).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    assigneeId: 'assignee-1',
+                    responsibleUid: 'assignee-1',
                     sectionId: TEST_IDS.SECTION_1,
                 }),
             )
@@ -968,7 +989,7 @@ describe(`${ADD_TASKS} tool`, () => {
                         email: 'user@example.com',
                     },
                 })
-            mockTodoistApi.addTask.mockResolvedValue(
+            createTask.mockResolvedValue(
                 createMockTask({ id: '8485099002', content: 'Section task' }),
             )
 
@@ -1045,7 +1066,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 addedAt: new Date('2025-08-13T22:09:56.123456Z'),
             })
 
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             const result = await addTasks.execute(
                 {
@@ -1062,13 +1083,14 @@ describe(`${ADD_TASKS} tool`, () => {
             // Should NOT call getUser — inbox is handled by stripping projectId
             expect(mockTodoistApi.getUser).not.toHaveBeenCalled()
 
-            // Verify addTask was called without projectId (API defaults to inbox)
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith({
+            // Verify the task was sent without projectId (API defaults to inbox)
+            expect(createTask).toHaveBeenCalledWith({
                 content: 'Task for inbox',
                 projectId: undefined,
                 sectionId: undefined,
                 parentId: undefined,
                 labels: undefined,
+                autoReminder: true,
             })
 
             // Verify result contains the task
@@ -1091,7 +1113,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 projectId: TEST_IDS.PROJECT_INBOX,
             })
 
-            mockTodoistApi.addTask
+            createTask
                 .mockResolvedValueOnce(mockApiResponse1)
                 .mockResolvedValueOnce(mockApiResponse2)
 
@@ -1106,19 +1128,19 @@ describe(`${ADD_TASKS} tool`, () => {
             )
 
             expect(mockTodoistApi.getUser).not.toHaveBeenCalled()
-            expect(mockTodoistApi.addTask).toHaveBeenCalledTimes(2)
+            expect(createTask).toHaveBeenCalledTimes(2)
         })
     })
 
     describe('isUncompletable parameter', () => {
-        it('should pass isUncompletable parameter to SDK', async () => {
+        it('should create the task with the uncompletable "* " prefix', async () => {
             // Mock API response - minimal mock just to prevent errors
             const mockApiResponse: Task = createMockTask({
                 id: '8485093999',
                 content: 'Project Header',
             })
 
-            mockTodoistApi.addTask.mockResolvedValueOnce(mockApiResponse)
+            createTask.mockResolvedValueOnce(mockApiResponse)
 
             await addTasks.execute(
                 {
@@ -1132,27 +1154,27 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            // Verify the parameter was passed to the SDK - this is the key test
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith({
-                content: 'Project Header',
+            // Todoist marks a task uncompletable by the "* " prefix on its content
+            expect(createTask).toHaveBeenCalledWith({
+                content: '* Project Header',
                 projectId: undefined,
                 sectionId: undefined,
                 parentId: undefined,
                 labels: undefined,
-                isUncompletable: true,
+                autoReminder: true,
             })
         })
     })
 
     describe('order parameter', () => {
-        it('should pass order parameter to SDK', async () => {
+        it('should send order as the child order', async () => {
             const mockApiResponse: Task = createMockTask({
                 id: '8485094000',
                 content: 'Task with order',
                 childOrder: 5,
             })
 
-            mockTodoistApi.addTask.mockResolvedValueOnce(mockApiResponse)
+            createTask.mockResolvedValueOnce(mockApiResponse)
 
             await addTasks.execute(
                 {
@@ -1167,13 +1189,14 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith({
+            expect(createTask).toHaveBeenCalledWith({
                 content: 'Task with order',
                 projectId: '6cfCcrrCFg2xP94Q',
                 sectionId: undefined,
                 parentId: undefined,
-                order: 5,
+                childOrder: 5,
                 labels: undefined,
+                autoReminder: true,
             })
         })
     })
@@ -1200,7 +1223,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 'Task "Task in archived project": Cannot create task in archived project "Archived Project"',
             )
 
-            expect(mockTodoistApi.addTask).not.toHaveBeenCalled()
+            expect(createTask).not.toHaveBeenCalled()
         })
 
         it('should not check project when projectId is omitted', async () => {
@@ -1208,12 +1231,12 @@ describe(`${ADD_TASKS} tool`, () => {
                 id: '8485094001',
                 content: 'Inbox task',
             })
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             await addTasks.execute({ tasks: [{ content: 'Inbox task' }] }, mockTodoistApi)
 
             expect(mockTodoistApi.getProject).not.toHaveBeenCalled()
-            expect(mockTodoistApi.addTask).toHaveBeenCalled()
+            expect(createTask).toHaveBeenCalled()
         })
 
         it('should report the error when project is deleted (not found)', async () => {
@@ -1233,7 +1256,7 @@ describe(`${ADD_TASKS} tool`, () => {
             expect(result.structuredContent.tasks).toEqual([])
             expect(result.structuredContent.failures[0]?.error).toContain('Project not found')
 
-            expect(mockTodoistApi.addTask).not.toHaveBeenCalled()
+            expect(createTask).not.toHaveBeenCalled()
         })
 
         it('should explain when the project is a workspace project the user has not joined', async () => {
@@ -1247,7 +1270,7 @@ describe(`${ADD_TASKS} tool`, () => {
             expect(result.structuredContent.failures).toEqual([
                 { item: 'Follow up', error: expected },
             ])
-            expect(mockTodoistApi.addTask).not.toHaveBeenCalled()
+            expect(createTask).not.toHaveBeenCalled()
         })
 
         it('should scan workspace projects once per batch, however many projects need explaining', async () => {
@@ -1297,7 +1320,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 id: '8485094002',
                 content: 'Task in active project',
             })
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             const result = await addTasks.execute(
                 {
@@ -1312,7 +1335,7 @@ describe(`${ADD_TASKS} tool`, () => {
             )
 
             expect(mockTodoistApi.getProject).toHaveBeenCalledWith('6cfCcrrCFg2xP94Q')
-            expect(mockTodoistApi.addTask).toHaveBeenCalled()
+            expect(createTask).toHaveBeenCalled()
             expect(result.structuredContent.totalCount).toBe(1)
         })
     })
@@ -1324,7 +1347,7 @@ describe(`${ADD_TASKS} tool`, () => {
                 content: 'Test',
             })
 
-            mockTodoistApi.addTask.mockResolvedValue(mockApiResponse)
+            createTask.mockResolvedValue(mockApiResponse)
 
             // This is the exact input shape LLMs often send — empty strings for all optional fields
             const result = await addTasks.execute(
@@ -1352,27 +1375,207 @@ describe(`${ADD_TASKS} tool`, () => {
 
             // Empty strings should be stripped to undefined, not passed to the API
             // priority 'p4' is valid (not empty) so it gets converted to numeric 1
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith({
+            expect(createTask).toHaveBeenCalledWith({
                 content: 'Test',
                 description: undefined,
                 priority: convertPriorityToNumber('p4'),
-                dueString: undefined,
-                deadlineDate: undefined,
+                due: undefined,
+                deadline: undefined,
                 labels: [],
                 projectId: undefined,
                 sectionId: undefined,
                 parentId: undefined,
-                order: 0,
-                isUncompletable: false,
+                childOrder: 0,
+                autoReminder: true,
             })
 
             expect(result.structuredContent.successCount).toBe(1)
         })
     })
 
+    describe('one Sync request per batch', () => {
+        function sentCommands() {
+            return mockTodoistApi.sync.mock.calls.flatMap(([request]) => request.commands ?? [])
+        }
+
+        it('creates the whole batch in one request, in input order, and reads it back once', async () => {
+            createTask.mockImplementation(async (args) =>
+                createMockTask({ id: `id-${args.content}`, content: args.content }),
+            )
+
+            const result = await addTasks.execute(
+                {
+                    tasks: [
+                        { content: 'Plan', projectId: '6cfCcrrCFg2xP94Q', dueString: 'tomorrow' },
+                        { content: 'Draft', sectionId: TEST_IDS.SECTION_1 },
+                        { content: 'Ship', parentId: TEST_IDS.TASK_1 },
+                    ],
+                },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.sync).toHaveBeenCalledOnce()
+            expect(sentCommands()).toEqual([
+                expect.objectContaining({
+                    type: 'item_add',
+                    args: expect.objectContaining({
+                        content: 'Plan',
+                        due: { string: 'tomorrow' },
+                    }),
+                }),
+                expect.objectContaining({ args: expect.objectContaining({ content: 'Draft' }) }),
+                expect.objectContaining({ args: expect.objectContaining({ content: 'Ship' }) }),
+            ])
+            expect(mockTodoistApi.getTasks).toHaveBeenCalledOnce()
+            expect(mockTodoistApi.getTasks).toHaveBeenCalledWith({
+                ids: ['id-Plan', 'id-Draft', 'id-Ship'],
+                limit: 3,
+            })
+            expect(result.structuredContent.tasks.map((task) => task.id)).toEqual([
+                'id-Plan',
+                'id-Draft',
+                'id-Ship',
+            ])
+        })
+
+        it('leaves a task that fails its checks out of the request', async () => {
+            createTask.mockImplementation(async (args) =>
+                createMockTask({ id: `id-${args.content}`, content: args.content }),
+            )
+
+            const result = await addTasks.execute(
+                {
+                    tasks: [
+                        { content: 'First' },
+                        { content: 'Bad duration', duration: 'whenever' },
+                        { content: 'Third' },
+                    ],
+                },
+                mockTodoistApi,
+            )
+
+            expect(sentCommands().map((command) => command.args)).toEqual([
+                expect.objectContaining({ content: 'First' }),
+                expect.objectContaining({ content: 'Third' }),
+            ])
+            expect(result.structuredContent.tasks.map((task) => task.content)).toEqual([
+                'First',
+                'Third',
+            ])
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'Bad duration',
+                    error: expect.stringContaining('Invalid duration format "whenever"'),
+                },
+            ])
+        })
+
+        it('sends nothing when every task fails its checks', async () => {
+            const result = await addTasks.execute(
+                { tasks: [{ content: 'Bad duration', duration: 'whenever' }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.sync).not.toHaveBeenCalled()
+            expect(result.structuredContent.failureCount).toBe(1)
+        })
+
+        it('says a task was created when it cannot be read back, so it is not created again', async () => {
+            createTask.mockResolvedValueOnce(createMockTask({ id: 'created-1', content: 'Plan' }))
+            mockTodoistApi.getTasks.mockRejectedValue(
+                Object.assign(new Error('Forbidden'), { httpStatusCode: 403 }),
+            )
+
+            const result = await addTasks.execute({ tasks: [{ content: 'Plan' }] }, mockTodoistApi)
+
+            expect(result.structuredContent.tasks).toEqual([])
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'Plan',
+                    error: 'Created as id=created-1, but reading it back failed. Do not create it again.',
+                },
+            ])
+        })
+
+        it('reports every task when the request itself is refused', async () => {
+            mockTodoistApi.sync.mockRejectedValueOnce(
+                createApiError({ status: 400, error: 'Bad Request' }),
+            )
+
+            const result = await addTasks.execute(
+                { tasks: [{ content: 'Plan' }, { content: 'Draft' }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.sync).toHaveBeenCalledOnce()
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'Plan', error: 'Todoist API request failed (HTTP 400)' },
+                { item: 'Draft', error: 'Todoist API request failed (HTTP 400)' },
+            ])
+        })
+
+        it('reads each project once for a batch of assigned tasks', async () => {
+            userResolver.clearCache()
+            const sharedProject = createMockProject({ id: TEST_IDS.PROJECT_WORK, isShared: true })
+            const assignee = { id: 'user-ada', name: 'Ada Lovelace', email: 'ada@example.com' }
+            mockTodoistApi.getProject.mockResolvedValue(sharedProject)
+            mockTodoistApi.getUser.mockResolvedValue({
+                id: TEST_IDS.USER_ID,
+                fullName: 'Test User',
+                email: 'test@example.com',
+            } as Awaited<ReturnType<TodoistApi['getUser']>>)
+            mockTodoistApi.getProjects.mockResolvedValue({
+                results: [sharedProject],
+                nextCursor: null,
+            })
+            mockTodoistApi.getProjectCollaborators.mockResolvedValue({
+                results: [assignee],
+                nextCursor: null,
+            })
+            createTask.mockImplementation(async (args) =>
+                createMockTask({ id: `id-${args.content}`, content: args.content }),
+            )
+
+            const result = await addTasks.execute(
+                {
+                    tasks: ['One', 'Two', 'Three'].map((content) => ({
+                        content,
+                        projectId: TEST_IDS.PROJECT_WORK,
+                        responsibleUser: 'ada@example.com',
+                    })),
+                },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.successCount).toBe(3)
+            expect(sentCommands().map((command) => command.args)).toEqual(
+                Array(3).fill(expect.objectContaining({ responsibleUid: 'user-ada' })),
+            )
+            expect(mockTodoistApi.getProject).toHaveBeenCalledOnce()
+        })
+    })
+
     describe('batch limits', () => {
         it('should export MAX_TASKS_PER_OPERATION constant', () => {
-            expect(MAX_TASKS_PER_OPERATION).toBe(25)
+            expect(MAX_TASKS_PER_OPERATION).toBe(100)
+        })
+
+        it('accepts 100 tasks in one call and sends them in one request', async () => {
+            createTask.mockImplementation(async (args) =>
+                createMockTask({ id: `id-${args.content}`, content: args.content }),
+            )
+            const tasks = Array.from({ length: 100 }, (_, index) => ({ content: `Task ${index}` }))
+
+            const result = await addTasks.execute({ tasks }, mockTodoistApi)
+
+            expect(mockTodoistApi.sync).toHaveBeenCalledOnce()
+            expect(result.structuredContent.successCount).toBe(100)
+        })
+
+        it('rejects a call with more than 100 tasks', () => {
+            const tasks = Array.from({ length: 101 }, (_, index) => ({ content: `Task ${index}` }))
+
+            expect(z.object(addTasks.parameters).safeParse({ tasks }).success).toBe(false)
         })
     })
 })

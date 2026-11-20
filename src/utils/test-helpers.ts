@@ -7,6 +7,8 @@ import type {
     PersonalProject,
     Section,
     SyncCommand,
+    SyncError,
+    SyncResponse,
     Task,
     TodoistApi,
     Workspace,
@@ -261,6 +263,65 @@ export function createMockFilter(overrides: Partial<Filter> = {}): Filter {
         isFrozen: false,
         itemOrder: 0,
         ...overrides,
+    }
+}
+
+/**
+ * A task creation the Sync API would answer: the `item_add` arguments one command
+ * carried. See {@link answerTaskCreates}.
+ */
+export type TaskCreateArgs = Record<string, unknown> & { content: string }
+
+/**
+ * Answers `sync` the way the Sync API answers `item_add` commands, and `getTasks`
+ * with the tasks it created, for tools that create tasks through Sync.
+ *
+ * Each command's arguments go to `createTask`, which a test mocks like a create
+ * endpoint: the task it resolves to is created, and an error it rejects with becomes
+ * that command's error status, keeping its HTTP status, error code and tag.
+ */
+export function answerTaskCreates(
+    client: Mocked<TodoistApi>,
+    createTask: (args: TaskCreateArgs) => Promise<Task>,
+): void {
+    const created = new Map<string, Task>()
+
+    client.sync.mockImplementation(async ({ commands = [] }) => {
+        const syncStatus: NonNullable<SyncResponse['syncStatus']> = {}
+        const tempIdMapping: Record<string, string> = {}
+        for (const command of commands) {
+            try {
+                const task = await createTask(command.args as TaskCreateArgs)
+                created.set(task.id, task)
+                syncStatus[command.uuid] = 'ok'
+                if (command.tempId) {
+                    tempIdMapping[command.tempId] = task.id
+                }
+            } catch (error) {
+                syncStatus[command.uuid] = toSyncCommandError(error)
+            }
+        }
+        return { syncStatus, tempIdMapping }
+    })
+
+    client.getTasks.mockImplementation(async (args) => ({
+        results: (args?.ids ?? []).flatMap((id) => created.get(id) ?? []),
+        nextCursor: null,
+    }))
+}
+
+function toSyncCommandError(error: unknown): SyncError {
+    const { message, httpStatusCode, responseData } = error as {
+        message?: string
+        httpStatusCode?: number
+        responseData?: { error?: string; error_code?: number; error_tag?: string }
+    }
+    return {
+        error: responseData?.error ?? message ?? 'Unknown error',
+        errorCode: responseData?.error_code ?? 0,
+        errorExtra: {},
+        errorTag: responseData?.error_tag ?? '',
+        httpCode: httpStatusCode ?? 400,
     }
 }
 

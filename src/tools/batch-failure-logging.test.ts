@@ -1,6 +1,7 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import {
+    answerTaskCreates,
     createMockProject,
     createMockTask,
     createMockUser,
@@ -106,9 +107,13 @@ const cases = [
         of: 2,
         item: '[redacted]',
         run: (client: Mocked<TodoistApi>) => {
-            client.addTask
-                .mockResolvedValueOnce(createMockTask({ content: 'First task' }))
-                .mockRejectedValueOnce(apiError)
+            answerTaskCreates(
+                client,
+                vi
+                    .fn()
+                    .mockResolvedValueOnce(createMockTask({ content: 'First task' }))
+                    .mockRejectedValueOnce(apiError),
+            )
             return addTasks.execute(
                 {
                     tasks: [

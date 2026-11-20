@@ -577,10 +577,14 @@ export function formatDueStringParseError(
     const parsedApiError = extractApiErrorInfo(error)
     const tag = parsedApiError?.tag?.toUpperCase()
     const isStableDueStringTag = tag === 'INVALID_DUE_STRING'
+    // The REST create says "Invalid date format"; a Sync `item_add` reports the same
+    // problem as INVALID_DATE. Neither names the field, so they only count when no
+    // deadline was sent alongside the due string.
     const isCurrentGenericDueFormatError =
-        !deadlineDate && /^invalid date format\.?$/i.test(parsedApiError?.message ?? '')
+        !deadlineDate &&
+        (tag === 'INVALID_DATE' || /^invalid date format\.?$/i.test(parsedApiError?.message ?? ''))
     // Do not infer the field from a generic API error alone. This fallback is
-    // deliberately limited to the exact API text observed for due-string
+    // deliberately limited to the exact API errors observed for due-string
     // parsing and is only used by add-tasks after it supplied dueString.
     if (!isStableDueStringTag && !isCurrentGenericDueFormatError) {
         return undefined

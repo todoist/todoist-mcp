@@ -269,6 +269,49 @@ describe('formatToolExecutionError', () => {
             )
         })
 
+        it.each([
+            { name: 'the REST create', responseData: { error: 'Invalid date format' } },
+            {
+                // Sync reports an unparseable due string this way, as the real API showed.
+                name: 'a Sync command',
+                responseData: {
+                    error: 'Date is invalid',
+                    errorCode: 480,
+                    errorTag: 'INVALID_DATE',
+                    httpCode: 400,
+                },
+            },
+        ])('recognises an unparseable dueString reported by $name', ({ responseData }) => {
+            const error = Object.assign(new Error('HTTP 400: Bad Request'), {
+                httpStatusCode: 400,
+                responseData,
+            })
+
+            expect(
+                formatDueStringParseError(error, {
+                    taskContent: 'Water plants',
+                    dueString: 'blursday',
+                }),
+            ).toBe(
+                'Task "Water plants" wasn\'t created because `dueString` could not be parsed. Change only `dueString` and retry.',
+            )
+        })
+
+        it('does not blame dueString for an invalid date when a deadline was sent too', () => {
+            const error = Object.assign(new Error('HTTP 400: Bad Request'), {
+                httpStatusCode: 400,
+                responseData: { error: 'Date is invalid', errorTag: 'INVALID_DATE', httpCode: 400 },
+            })
+
+            expect(
+                formatDueStringParseError(error, {
+                    taskContent: 'Water plants',
+                    dueString: 'blursday',
+                    deadlineDate: '2026-13-45',
+                }),
+            ).toBeUndefined()
+        })
+
         it('preserves dueString recovery guidance in batch-item output', () => {
             const recovery =
                 'Task "Lavendel abschneiden" wasn\'t created because `dueString` could not be parsed. Change only `dueString` and retry.'

@@ -71,8 +71,13 @@ export const LogLimits = {
 
 // Batch Operation Limits
 export const BatchLimits = {
-    /** Maximum tasks accepted by one task create or update operation */
+    /** Maximum tasks accepted by one task update operation */
     TASKS_PER_OPERATION: 25,
+    /**
+     * Maximum tasks one add-tasks call creates. They go out as one Sync request,
+     * which takes at most 100 commands.
+     */
+    TASK_CREATES_PER_OPERATION: 100,
     /** Maximum projects, sections, comments, labels or filters created or updated by one call */
     ITEMS_PER_OPERATION: 25,
     /**

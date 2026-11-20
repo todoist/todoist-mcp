@@ -1,7 +1,12 @@
 import type { Task, TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { AssignmentErrorType, assignmentValidator } from '../utils/assignment-validator.js'
-import { createMockProject, createMockTask } from '../utils/test-helpers.js'
+import {
+    answerTaskCreates,
+    createMockProject,
+    createMockTask,
+    type TaskCreateArgs,
+} from '../utils/test-helpers.js'
 import { userResolver } from '../utils/user-resolver.js'
 import { addTasks } from './add-tasks.js'
 import { findProjectCollaborators } from './find-project-collaborators.js'
@@ -31,6 +36,8 @@ vi.mock('../utils/user-resolver.js', () => ({
 
 describe('Assignment Integration Tests', () => {
     let mockTodoistApi: Mocked<TodoistApi>
+    // Answers each task add-tasks creates through Sync, like a create endpoint would
+    const createTask = vi.fn<(args: TaskCreateArgs) => Promise<Task>>()
 
     const mockValidUser = {
         userId: 'user-123',
@@ -64,7 +71,8 @@ describe('Assignment Integration Tests', () => {
         vi.clearAllMocks()
 
         mockTodoistApi = {
-            addTask: vi.fn(),
+            sync: vi.fn(),
+            getTasks: vi.fn(),
             updateTask: vi.fn(),
             getTask: vi.fn(),
             getProjects: vi.fn(),
@@ -101,7 +109,8 @@ describe('Assignment Integration Tests', () => {
             nextCursor: null,
         })
         mockTodoistApi.getProject.mockResolvedValue(mockProject)
-        mockTodoistApi.addTask.mockResolvedValue({ ...mockTask, responsibleUid: 'user-123' })
+        createTask.mockResolvedValue({ ...mockTask, responsibleUid: 'user-123' })
+        answerTaskCreates(mockTodoistApi, createTask)
         mockTodoistApi.updateTask.mockResolvedValue({ ...mockTask, responsibleUid: 'user-123' })
         mockTodoistApi.getTask.mockResolvedValue(mockTask)
     })
@@ -121,11 +130,11 @@ describe('Assignment Integration Tests', () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith(
+            expect(createTask).toHaveBeenCalledWith(
                 expect.objectContaining({
                     content: 'New assigned task',
                     projectId: 'project-123',
-                    assigneeId: 'user-123', // Should be resolved user ID
+                    responsibleUid: 'user-123', // Should be resolved user ID
                 }),
             )
 
@@ -160,7 +169,7 @@ describe('Assignment Integration Tests', () => {
                 'Task "Invalid assignment task": User not found in project collaborators. Use find-project-collaborators to see valid assignees',
             )
 
-            expect(mockTodoistApi.addTask).not.toHaveBeenCalled()
+            expect(createTask).not.toHaveBeenCalled()
         })
 
         it('should handle assignment for subtasks', async () => {
@@ -183,11 +192,11 @@ describe('Assignment Integration Tests', () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.addTask).toHaveBeenCalledWith(
+            expect(createTask).toHaveBeenCalledWith(
                 expect.objectContaining({
                     content: 'Subtask with assignment',
                     parentId: 'parent-123',
-                    assigneeId: 'user-123',
+                    responsibleUid: 'user-123',
                 }),
             )
         })

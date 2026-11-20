@@ -1,9 +1,10 @@
 import type { ContentBlock, StandardSchemaWithJSON } from '@modelcontextprotocol/server'
 import type { TodoistApi } from '@todoist/sdk'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, type Mocked, vi } from 'vitest'
 import { z } from 'zod'
 import { registerTools, stripEmailsFromObject, stripEmailsFromText } from './mcp-helpers.js'
 import { addTasks } from './tools/add-tasks.js'
+import { answerTaskCreates } from './utils/test-helpers.js'
 
 type RegisterToolsArgs = Parameters<typeof registerTools>[0]
 type ToolFixture = RegisterToolsArgs['tools'][number]
@@ -382,9 +383,8 @@ describe('registerTools error path', () => {
             httpStatusCode: 400,
             responseData: { error: 'Invalid date format' },
         })
-        const client = {
-            addTask: vi.fn().mockRejectedValue(invalidDueString),
-        } as unknown as TodoistApi
+        const client = { sync: vi.fn(), getTasks: vi.fn() } as unknown as Mocked<TodoistApi>
+        answerTaskCreates(client, vi.fn().mockRejectedValue(invalidDueString))
 
         registerTools({ tools: [addTasks], server, client })
 
