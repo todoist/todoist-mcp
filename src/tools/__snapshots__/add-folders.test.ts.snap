@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`add-folders tool > should create each folder in the workspace it names 1`] = `
+"Added 3 folders:
+• Marketing (id=marketing-id, workspaceId=workspace-123)
+• Clients (id=clients-id, workspaceId=workspace-456)
+• Sales (id=sales-id, workspaceId=workspace-123)"
+`;
+
+exports[`add-folders tool > should keep the folders that were created when one is rejected 1`] = `
+"Added 1 folder:
+• Marketing (id=marketing-id, workspaceId=workspace-123)
+Failed (1) - address or drop these items:
+    Sales: Todoist API request failed (HTTP 403)"
+`;

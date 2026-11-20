@@ -2,6 +2,7 @@ import { taskListResourceUri } from './mcp-apps/resources.js'
 import type { AnyTodoistTool } from './todoist-tool.js'
 import { addComments } from './tools/add-comments.js'
 import { addFilters } from './tools/add-filters.js'
+import { addFolders } from './tools/add-folders.js'
 import { addLabels } from './tools/add-labels.js'
 import { addProjects } from './tools/add-projects.js'
 import { addReminders } from './tools/add-reminders.js'
@@ -43,6 +44,7 @@ import { setUserStatus } from './tools/set-user-status.js'
 import { uncompleteTasks } from './tools/uncomplete-tasks.js'
 import { updateComments } from './tools/update-comments.js'
 import { updateFilters } from './tools/update-filters.js'
+import { updateFolders } from './tools/update-folders.js'
 import { updateLabels } from './tools/update-labels.js'
 import { updateProjects } from './tools/update-projects.js'
 import { updateReminders } from './tools/update-reminders.js'
@@ -96,6 +98,8 @@ const toolRegistry = {
     projectMove,
 
     // Folder management tools
+    addFolders,
+    updateFolders,
     findFolders,
 
     // Section management tools

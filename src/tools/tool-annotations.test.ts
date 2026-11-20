@@ -92,6 +92,18 @@ describeToolAnnotations({
             destructiveHint: true,
             idempotentHint: true,
         },
+        [ToolNames.ADD_FOLDERS]: {
+            title: 'Todoist: Add Folders',
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+        },
+        [ToolNames.UPDATE_FOLDERS]: {
+            title: 'Todoist: Update Folders',
+            readOnlyHint: false,
+            destructiveHint: true,
+            idempotentHint: true,
+        },
         [ToolNames.FIND_FOLDERS]: {
             title: 'Todoist: Find Folders',
             readOnlyHint: true,

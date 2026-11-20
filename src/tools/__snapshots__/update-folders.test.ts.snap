@@ -1,0 +1,14 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`update-folders tool > should keep the folders that were renamed when one is rejected 1`] = `
+"Renamed 1 folder:
+• Growth (id=folder-123)
+Failed (1) - address or drop these items:
+    missing-folder: Folder not found (HTTP 404)"
+`;
+
+exports[`update-folders tool > should rename each folder 1`] = `
+"Renamed 2 folders:
+• Growth (id=folder-123)
+• Partners (id=folder-456)"
+`;

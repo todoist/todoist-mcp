@@ -20,6 +20,7 @@ const mockTodoistApi = {
     deleteReminder: vi.fn(),
     deleteLocationReminder: vi.fn(),
     deleteFilter: vi.fn(),
+    deleteFolder: vi.fn(),
     getWorkspaces: vi.fn(),
     getWorkspaceActiveProjects: vi.fn(),
 } as unknown as Mocked<TodoistApi>
@@ -274,6 +275,35 @@ describe(`${DELETE_OBJECT} tool`, () => {
             await expect(
                 deleteObject.execute({ type: 'filter', id: 'non-existent-filter' }, mockTodoistApi),
             ).rejects.toThrow('API Error: Filter not found')
+        })
+    })
+
+    describe('deleting folders', () => {
+        it('should delete a folder by ID and say its projects stay in the workspace', async () => {
+            mockTodoistApi.deleteFolder.mockResolvedValue(true)
+
+            const result = await deleteObject.execute(
+                { type: 'folder', id: 'folder-123' },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.deleteFolder).toHaveBeenCalledWith('folder-123')
+            expect(mockTodoistApi.deleteProject).not.toHaveBeenCalled()
+            expect(result.textContent).toBe(
+                'Deleted folder: id=folder-123. Its projects were kept and moved to the top level of the workspace.',
+            )
+            expect(result.structuredContent).toEqual({
+                deletedEntity: { type: 'folder', id: 'folder-123' },
+                success: true,
+            })
+        })
+
+        it('should propagate folder deletion errors', async () => {
+            mockTodoistApi.deleteFolder.mockRejectedValue(new Error('API Error: Forbidden'))
+
+            await expect(
+                deleteObject.execute({ type: 'folder', id: 'folder-123' }, mockTodoistApi),
+            ).rejects.toThrow('API Error: Forbidden')
         })
     })
 

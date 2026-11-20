@@ -11,6 +11,7 @@ const entityTypes = [
     'comment',
     'label',
     'filter',
+    'folder',
     'reminder',
     'location_reminder',
 ] as const
@@ -33,7 +34,7 @@ const OutputSchema = {
 const deleteObject = {
     name: ToolNames.DELETE_OBJECT,
     description:
-        'Delete a project, section, task, comment, label, filter, reminder, or location_reminder by its ID. Projects can be deleted whether active or archived (find archived ones via find-projects with archivedStatus); note a workspace project must be archived before it can be deleted, while personal projects can be deleted regardless.',
+        'Delete a project, section, task, comment, label, filter, folder, reminder, or location_reminder by its ID. Projects can be deleted whether active or archived (find archived ones via find-projects with archivedStatus); note a workspace project must be archived before it can be deleted, while personal projects can be deleted regardless. Deleting a folder keeps its projects, moving them to the top level of the workspace.',
     parameters: ArgsSchema,
     outputSchema: OutputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
@@ -64,6 +65,9 @@ const deleteObject = {
             case 'filter':
                 await client.deleteFilter(args.id)
                 break
+            case 'folder':
+                await client.deleteFolder(args.id)
+                break
             case 'reminder':
                 await client.deleteReminder(args.id)
                 break
@@ -73,7 +77,10 @@ const deleteObject = {
         }
 
         return {
-            textContent: `Deleted ${args.type}: id=${args.id}`,
+            textContent:
+                args.type === 'folder'
+                    ? `Deleted folder: id=${args.id}. Its projects were kept and moved to the top level of the workspace.`
+                    : `Deleted ${args.type}: id=${args.id}`,
             structuredContent: {
                 deletedEntity: { type: args.type, id: args.id },
                 success: true,

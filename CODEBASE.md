@@ -119,7 +119,7 @@ Tool files are flat in `src/tools/` (kebab-case). Don't enumerate — grep. Curr
 
 - **Tasks** — add/update/complete/uncomplete/reschedule/find/find-by-date/find-completed/manage-assignments
 - **Projects** — add/update/find/project-management/project-move + health/activity-stats/insights
-- **Folders** (group workspace projects) — find
+- **Folders** (group workspace projects) — add/update/find; deleted through delete-object
 - **Sections** — add/update/find
 - **Comments** — add/update/find (attachments supported; see `view-attachment`)
 - **Labels** — add/find

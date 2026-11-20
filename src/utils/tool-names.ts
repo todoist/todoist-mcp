@@ -24,6 +24,8 @@ export const ToolNames = {
     PROJECT_MOVE: 'project-move',
 
     // Folder management tools
+    ADD_FOLDERS: 'add-folders',
+    UPDATE_FOLDERS: 'update-folders',
     FIND_FOLDERS: 'find-folders',
 
     // Section management tools
