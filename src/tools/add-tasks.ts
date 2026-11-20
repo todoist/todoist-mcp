@@ -142,11 +142,12 @@ const addTasks = {
             }),
         )
 
-        // Flatten and sort by original index to maintain input order in the response
-        const settled = groupResults
-            .flat()
-            .sort((a, b) => a.index - b.index)
-            .map(({ result }) => result)
+        // Each result goes back to its task's input position, which is how
+        // `partitionSettled` pairs it with the task and keeps the response in input order
+        const settled: PromiseSettledResult<Task>[] = []
+        for (const { index, result } of groupResults.flat()) {
+            settled[index] = result
+        }
 
         const { succeeded, failures } = partitionSettled(tasks, settled, (task) => task.content)
         const newTasks = succeeded.map(({ value }) => value)
