@@ -9,7 +9,7 @@ import { executeWithRetry } from '../utils/retry.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { type ResolvedWorkspace, workspaceResolver } from '../utils/workspace-resolver.js'
 
-const { FIND_PROJECTS, LIST_WORKSPACES } = ToolNames
+const { ADD_FOLDERS, FIND_PROJECTS, LIST_WORKSPACES } = ToolNames
 
 const ArgsSchema = {
     workspace: z
@@ -84,7 +84,10 @@ function generateTextContent(listings: WorkspaceFolders[]): string {
                 previewLines: folders
                     .map((folder) => `    ${folder.name} • id=${folder.id}`)
                     .join('\n'),
-                zeroReasonHints: ['No folders in this workspace'],
+                zeroReasonHints: [
+                    'No folders in this workspace',
+                    `Use ${ADD_FOLDERS} to create one`,
+                ],
             }),
         )
         .join('\n')

@@ -9,6 +9,7 @@ import {
 import { ToolNames } from '../utils/tool-names.js'
 import { addComments } from './add-comments.js'
 import { addFilters } from './add-filters.js'
+import { addFolders } from './add-folders.js'
 import { addLabels } from './add-labels.js'
 import { addProjects } from './add-projects.js'
 import { addReminders } from './add-reminders.js'
@@ -19,6 +20,7 @@ import { rescheduleTasks } from './reschedule-tasks.js'
 import { uncompleteTasks } from './uncomplete-tasks.js'
 import { updateComments } from './update-comments.js'
 import { updateFilters } from './update-filters.js'
+import { updateFolders } from './update-folders.js'
 import { updateLabels } from './update-labels.js'
 import { updateProjects } from './update-projects.js'
 import { updateReminders } from './update-reminders.js'
@@ -240,6 +242,28 @@ const cases = [
             return updateFilters.execute({ filters: [{ id: 'filter-1', name: 'Renamed' }] }, client)
         },
     },
+    {
+        toolName: ToolNames.ADD_FOLDERS,
+        of: 1,
+        item: '[redacted]',
+        run: (client: Mocked<TodoistApi>) => {
+            client.addFolder.mockRejectedValue(apiError)
+            // A numeric workspace ID passes through the resolver unread.
+            return addFolders.execute(
+                { folders: [{ name: 'A folder', workspace: '12345' }] },
+                client,
+            )
+        },
+    },
+    {
+        toolName: ToolNames.UPDATE_FOLDERS,
+        of: 1,
+        item: 'folder-1',
+        run: (client: Mocked<TodoistApi>) => {
+            client.updateFolder.mockRejectedValue(apiError)
+            return updateFolders.execute({ folders: [{ id: 'folder-1', name: 'Renamed' }] }, client)
+        },
+    },
 ]
 
 describe('batch tools log the items they could not act on', () => {
@@ -267,6 +291,8 @@ describe('batch tools log the items they could not act on', () => {
             updateSection: vi.fn(),
             addReminder: vi.fn(),
             updateReminder: vi.fn(),
+            addFolder: vi.fn(),
+            updateFolder: vi.fn(),
             sync: vi.fn(),
             getProject: vi.fn().mockResolvedValue(createMockProject()),
             getPersonalProjectCapacity: vi

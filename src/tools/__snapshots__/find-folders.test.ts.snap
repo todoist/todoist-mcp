@@ -20,5 +20,5 @@ Preview:
 
 exports[`find-folders tool > one workspace > should say when the workspace has no folders 1`] = `
 "Folders in Acme (id=workspace-123): 0.
-No results. No folders in this workspace."
+No results. No folders in this workspace; Use add-folders to create one."
 `;

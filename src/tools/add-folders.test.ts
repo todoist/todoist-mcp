@@ -109,7 +109,7 @@ describe(`${ADD_FOLDERS} tool`, () => {
 
     it('should not retry a create that may have gone through', async () => {
         mockTodoistApi.addFolder.mockRejectedValueOnce(
-            Object.assign(new Error('Bad Gateway'), { httpStatusCode: 502 }),
+            createApiError({ status: 502, error: 'Bad Gateway' }),
         )
 
         const result = await addFolders.execute(
@@ -121,5 +121,58 @@ describe(`${ADD_FOLDERS} tool`, () => {
         expect(result.structuredContent.failures).toEqual([
             { item: 'Marketing', error: expect.any(String) },
         ])
+    })
+
+    describe('with retries', () => {
+        beforeEach(() => {
+            vi.useFakeTimers()
+        })
+
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it('should retry a create the server turned away', async () => {
+            mockTodoistApi.addFolder.mockRejectedValueOnce(
+                createApiError({ status: 503, error: 'Service Unavailable' }),
+            )
+
+            const promise = addFolders.execute(
+                { folders: [{ name: 'Marketing', workspace: 'Acme' }] },
+                mockTodoistApi,
+            )
+            await vi.runAllTimersAsync()
+            const result = await promise
+
+            expect(mockTodoistApi.addFolder).toHaveBeenCalledTimes(2)
+            expect(result.structuredContent.successCount).toBe(1)
+            expect(result.structuredContent.failureCount).toBe(0)
+        })
+
+        it('should share one workspace lookup, retries included, between folders naming it', async () => {
+            mockTodoistApi.getWorkspaces.mockRejectedValue(
+                createApiError({ status: 503, error: 'Service Unavailable' }),
+            )
+
+            const promise = addFolders.execute(
+                {
+                    folders: [
+                        { name: 'Marketing', workspace: 'Acme' },
+                        { name: 'Sales', workspace: 'Acme' },
+                    ],
+                },
+                mockTodoistApi,
+            )
+            await vi.runAllTimersAsync()
+            const result = await promise
+
+            // One first attempt and two retries, however many folders name the workspace.
+            expect(mockTodoistApi.getWorkspaces).toHaveBeenCalledTimes(3)
+            expect(mockTodoistApi.addFolder).not.toHaveBeenCalled()
+            expect(result.structuredContent.failures.map((failure) => failure.item)).toEqual([
+                'Marketing',
+                'Sales',
+            ])
+        })
     })
 })

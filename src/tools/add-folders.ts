@@ -55,11 +55,22 @@ const addFolders = {
         // Each folder is created on its own, so one rejection neither discards the
         // folders that were created nor hides them behind one error. A create retries
         // only a 503: after a 502/504 the folder may already exist.
+        // Folders naming the same workspace share one lookup, retries included.
+        const workspaceResolutions = new Map<string, Promise<string>>()
+        const resolveWorkspaceId = (workspace: string) => {
+            let resolution = workspaceResolutions.get(workspace)
+            if (!resolution) {
+                resolution = executeWithRetry(() =>
+                    workspaceResolver.resolveWorkspace(client, workspace),
+                ).then(({ workspaceId }) => workspaceId)
+                workspaceResolutions.set(workspace, resolution)
+            }
+            return resolution
+        }
+
         const settled = await Promise.allSettled(
             folders.map(async ({ name, workspace }) => {
-                const { workspaceId } = await executeWithRetry(() =>
-                    workspaceResolver.resolveWorkspace(client, workspace),
-                )
+                const workspaceId = await resolveWorkspaceId(workspace)
                 return executeCreateWithRetry(() => client.addFolder({ name, workspaceId }))
             }),
         )
