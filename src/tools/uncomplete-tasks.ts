@@ -2,9 +2,11 @@ import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { formatBatchItemError } from '../tool-execution-error.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
+import { getWriteLimiter } from '../utils/concurrency.js'
 import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema } from '../utils/output-schemas.js'
 import { summarizeBatch } from '../utils/response-builders.js'
+import { executeWithRetry } from '../utils/retry.js'
 import { ToolNames } from '../utils/tool-names.js'
 
 const ArgsSchema = {
@@ -33,20 +35,31 @@ const uncompleteTasks = {
         const uncompleted: string[] = []
         const failures: Array<{ item: string; error: string; code?: string }> = []
 
-        for (const id of args.ids) {
-            try {
-                await client.reopenTask(id)
+        // Up to the write limit at once: one request per task, one after another,
+        // takes a large batch past the time a client waits for a tool call.
+        const writeLimiter = getWriteLimiter(client)
+        const outcomes = await Promise.allSettled(
+            args.ids.map((id) =>
+                // Reopening a task that is already open changes nothing, so any
+                // transient failure is safe to retry.
+                writeLimiter(() => executeWithRetry(() => client.reopenTask(id))),
+            ),
+        )
+
+        outcomes.forEach((outcome, index) => {
+            const id = args.ids[index] ?? `Task ${index + 1}`
+            if (outcome.status === 'fulfilled') {
                 uncompleted.push(id)
-            } catch (error) {
-                // `formatBatchItemError` keeps the status and error tag, so a
-                // quota rejection stays distinguishable from a missing task
-                // once the failures are aggregated.
-                failures.push({
-                    item: id,
-                    error: formatBatchItemError(error),
-                })
+                return
             }
-        }
+            // `formatBatchItemError` keeps the status and error tag, so a
+            // quota rejection stays distinguishable from a missing task
+            // once the failures are aggregated.
+            failures.push({
+                item: id,
+                error: formatBatchItemError(outcome.reason),
+            })
+        })
 
         logBatchFailures(ToolNames.UNCOMPLETE_TASKS, args.ids.length, failures)
 

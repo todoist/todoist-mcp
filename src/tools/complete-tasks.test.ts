@@ -1,5 +1,7 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { resetLimitersForTesting } from '../utils/concurrency.js'
+import { ConcurrencyLimits } from '../utils/constants.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { completeTasks } from './complete-tasks.js'
 
@@ -13,6 +15,7 @@ const { COMPLETE_TASKS } = ToolNames
 describe(`${COMPLETE_TASKS} tool`, () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        resetLimitersForTesting()
     })
 
     describe('completing multiple tasks', () => {
@@ -260,6 +263,60 @@ describe(`${COMPLETE_TASKS} tool`, () => {
             const { textContent } = result
             expect(textContent).toMatchSnapshot()
             expect(textContent).not.toContain('more') // Should not show truncation
+        })
+    })
+
+    describe('large batches', () => {
+        it('completes up to the write limit of tasks at once, reporting them in input order', async () => {
+            let active = 0
+            let peak = 0
+            mockTodoistApi.closeTask.mockImplementation(async () => {
+                active += 1
+                peak = Math.max(peak, active)
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                active -= 1
+                return true
+            })
+            const ids = Array.from({ length: 10 }, (_, index) => `task-${index}`)
+
+            const result = await completeTasks.execute({ ids }, mockTodoistApi)
+
+            expect(peak).toBe(ConcurrencyLimits.WRITES)
+            expect(result.structuredContent.completed).toEqual(ids)
+        })
+
+        it('retries a task the API turned away with a 503', async () => {
+            vi.useFakeTimers()
+            try {
+                mockTodoistApi.closeTask
+                    .mockRejectedValueOnce(
+                        Object.assign(new Error('Service Unavailable'), { httpStatusCode: 503 }),
+                    )
+                    .mockResolvedValueOnce(true)
+
+                const promise = completeTasks.execute({ ids: ['task-1'] }, mockTodoistApi)
+                await vi.runAllTimersAsync()
+                const result = await promise
+
+                expect(mockTodoistApi.closeTask).toHaveBeenCalledTimes(2)
+                expect(result.structuredContent.completed).toEqual(['task-1'])
+                expect(result.structuredContent.failures).toEqual([])
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
+        it('does not retry a 502, since closing a recurring task twice would skip an occurrence', async () => {
+            mockTodoistApi.closeTask.mockRejectedValueOnce(
+                Object.assign(new Error('Bad Gateway'), { httpStatusCode: 502 }),
+            )
+
+            const result = await completeTasks.execute({ ids: ['task-1'] }, mockTodoistApi)
+
+            expect(mockTodoistApi.closeTask).toHaveBeenCalledTimes(1)
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'task-1', error: 'Bad Gateway (HTTP 502)' },
+            ])
         })
     })
 

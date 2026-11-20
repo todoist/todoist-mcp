@@ -1,5 +1,7 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { resetLimitersForTesting } from '../utils/concurrency.js'
+import { ConcurrencyLimits } from '../utils/constants.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { uncompleteTasks } from './uncomplete-tasks.js'
 
@@ -13,6 +15,7 @@ const { UNCOMPLETE_TASKS } = ToolNames
 describe(`${UNCOMPLETE_TASKS} tool`, () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        resetLimitersForTesting()
     })
 
     describe('uncompleting multiple tasks', () => {
@@ -260,6 +263,47 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
             const { textContent } = result
             expect(textContent).toMatchSnapshot()
             expect(textContent).not.toContain('more') // Should not show truncation
+        })
+    })
+
+    describe('large batches', () => {
+        it('reopens up to the write limit of tasks at once, reporting them in input order', async () => {
+            let active = 0
+            let peak = 0
+            mockTodoistApi.reopenTask.mockImplementation(async () => {
+                active += 1
+                peak = Math.max(peak, active)
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                active -= 1
+                return true
+            })
+            const ids = Array.from({ length: 10 }, (_, index) => `task-${index}`)
+
+            const result = await uncompleteTasks.execute({ ids }, mockTodoistApi)
+
+            expect(peak).toBe(ConcurrencyLimits.WRITES)
+            expect(result.structuredContent.uncompleted).toEqual(ids)
+        })
+
+        it('retries a transient 502, since reopening an open task changes nothing', async () => {
+            vi.useFakeTimers()
+            try {
+                mockTodoistApi.reopenTask
+                    .mockRejectedValueOnce(
+                        Object.assign(new Error('Bad Gateway'), { httpStatusCode: 502 }),
+                    )
+                    .mockResolvedValueOnce(true)
+
+                const promise = uncompleteTasks.execute({ ids: ['task-1'] }, mockTodoistApi)
+                await vi.runAllTimersAsync()
+                const result = await promise
+
+                expect(mockTodoistApi.reopenTask).toHaveBeenCalledTimes(2)
+                expect(result.structuredContent.uncompleted).toEqual(['task-1'])
+                expect(result.structuredContent.failures).toEqual([])
+            } finally {
+                vi.useRealTimers()
+            }
         })
     })
 
