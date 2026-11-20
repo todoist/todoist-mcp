@@ -1,3 +1,4 @@
+import { createCommand, type TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
@@ -5,7 +6,7 @@ import { getWriteLimiter } from '../utils/concurrency.js'
 import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema } from '../utils/output-schemas.js'
 import { summarizeBatch } from '../utils/response-builders.js'
-import { executeWithRetry } from '../utils/retry.js'
+import { settleSyncCommands } from '../utils/sync-commands.js'
 import { ToolNames } from '../utils/tool-names.js'
 
 const ArgsSchema = {
@@ -31,17 +32,7 @@ const uncompleteTasks = {
     outputSchema: OutputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     async execute(args, client) {
-        // Up to the write limit at once: one request per task, one after another,
-        // takes a large batch past the time a client waits for a tool call. Each
-        // attempt takes its own slot, so a task waiting to retry holds none.
-        const writeLimiter = getWriteLimiter(client)
-        const outcomes = await Promise.allSettled(
-            args.ids.map((id) =>
-                // Reopening a task that is already open changes nothing, so any
-                // transient failure is safe to retry.
-                executeWithRetry(() => writeLimiter(() => client.reopenTask(id))),
-            ),
-        )
+        const outcomes = await reopenTasks(client, args.ids)
 
         const { succeeded, failures } = partitionSettled(args.ids, outcomes, (id) => id)
         const uncompleted = succeeded.map(({ item }) => item)
@@ -66,6 +57,33 @@ const uncompleteTasks = {
         }
     },
 } satisfies TodoistTool<typeof ArgsSchema, typeof OutputSchema>
+
+/**
+ * Reopens the tasks in one Sync request. `item_uncomplete` does what the REST reopen
+ * does, restoring a task along with any completed tasks above it, and reports a task
+ * it can't find as not found. A task listed twice is sent once. Retrying the
+ * request is safe: Todoist skips a command whose `uuid` it has already applied.
+ */
+async function reopenTasks(
+    client: TodoistApi,
+    ids: string[],
+): Promise<PromiseSettledResult<void>[]> {
+    const uniqueIds = [...new Set(ids)]
+    // Counted against the account's write limit, as each REST reopen was.
+    const { outcomes } = await settleSyncCommands(
+        client,
+        uniqueIds.map((id) => createCommand('item_uncomplete', { id })),
+        { limit: getWriteLimiter(client) },
+    )
+    const byId = new Map(uniqueIds.map((id, position) => [id, outcomes[position]]))
+    return ids.map(
+        (id): PromiseSettledResult<void> =>
+            byId.get(id) ?? {
+                status: 'rejected',
+                reason: new Error('Todoist did not report whether this task was reopened'),
+            },
+    )
+}
 
 function generateTextContent({
     uncompleted,

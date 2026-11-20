@@ -2,25 +2,44 @@ import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { resetLimitersForTesting } from '../utils/concurrency.js'
 import { ConcurrencyLimits } from '../utils/constants.js'
+import { allApplied, answerTaskReopens, createApiError } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { uncompleteTasks } from './uncomplete-tasks.js'
 
 // Mock the Todoist API
 const mockTodoistApi = {
-    reopenTask: vi.fn(),
+    sync: vi.fn(),
 } as unknown as Mocked<TodoistApi>
+
+// Answers each task the Sync request reopens, like the REST reopen would
+const reopenTask = vi.fn<(id: string) => Promise<unknown>>()
+
+// The errors the Sync API gives a command, as the real API returned them
+function itemNotFound() {
+    return createApiError({ status: 400, error: 'Item not found', tag: 'ITEM_NOT_FOUND', code: 22 })
+}
+function forbidden() {
+    return createApiError({
+        status: 403,
+        error: 'Insufficient permissions',
+        tag: 'FORBIDDEN',
+        code: 39,
+    })
+}
 
 const { UNCOMPLETE_TASKS } = ToolNames
 
 describe(`${UNCOMPLETE_TASKS} tool`, () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        reopenTask.mockReset()
         resetLimitersForTesting()
+        answerTaskReopens(mockTodoistApi, reopenTask)
     })
 
     describe('uncompleting multiple tasks', () => {
         it('should uncomplete all tasks successfully', async () => {
-            mockTodoistApi.reopenTask.mockResolvedValue(true)
+            reopenTask.mockResolvedValue(true)
 
             const result = await uncompleteTasks.execute(
                 { ids: ['task-1', 'task-2', 'task-3'] },
@@ -28,10 +47,10 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
             )
 
             // Verify API was called for each task
-            expect(mockTodoistApi.reopenTask).toHaveBeenCalledTimes(3)
-            expect(mockTodoistApi.reopenTask).toHaveBeenNthCalledWith(1, 'task-1')
-            expect(mockTodoistApi.reopenTask).toHaveBeenNthCalledWith(2, 'task-2')
-            expect(mockTodoistApi.reopenTask).toHaveBeenNthCalledWith(3, 'task-3')
+            expect(reopenTask).toHaveBeenCalledTimes(3)
+            expect(reopenTask).toHaveBeenNthCalledWith(1, 'task-1')
+            expect(reopenTask).toHaveBeenNthCalledWith(2, 'task-2')
+            expect(reopenTask).toHaveBeenNthCalledWith(3, 'task-3')
 
             // Verify result is a concise summary
             expect(result.textContent).toMatchSnapshot()
@@ -48,12 +67,12 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
         })
 
         it('should uncomplete single task', async () => {
-            mockTodoistApi.reopenTask.mockResolvedValue(true)
+            reopenTask.mockResolvedValue(true)
 
             const result = await uncompleteTasks.execute({ ids: ['8485093748'] }, mockTodoistApi)
 
-            expect(mockTodoistApi.reopenTask).toHaveBeenCalledTimes(1)
-            expect(mockTodoistApi.reopenTask).toHaveBeenCalledWith('8485093748')
+            expect(reopenTask).toHaveBeenCalledTimes(1)
+            expect(reopenTask).toHaveBeenCalledWith('8485093748')
 
             expect(result.textContent).toMatchSnapshot()
 
@@ -70,9 +89,9 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
 
         it('should handle partial failures gracefully', async () => {
             // Mock first and third tasks to succeed, second to fail
-            mockTodoistApi.reopenTask
+            reopenTask
                 .mockResolvedValueOnce(true) // task-1 succeeds
-                .mockRejectedValueOnce(new Error('Task not found')) // task-2 fails
+                .mockRejectedValueOnce(itemNotFound()) // task-2 fails
                 .mockResolvedValueOnce(true) // task-3 succeeds
 
             const result = await uncompleteTasks.execute(
@@ -81,10 +100,10 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
             )
 
             // Verify API was called for all tasks despite failure
-            expect(mockTodoistApi.reopenTask).toHaveBeenCalledTimes(3)
-            expect(mockTodoistApi.reopenTask).toHaveBeenNthCalledWith(1, 'task-1')
-            expect(mockTodoistApi.reopenTask).toHaveBeenNthCalledWith(2, 'task-2')
-            expect(mockTodoistApi.reopenTask).toHaveBeenNthCalledWith(3, 'task-3')
+            expect(reopenTask).toHaveBeenCalledTimes(3)
+            expect(reopenTask).toHaveBeenNthCalledWith(1, 'task-1')
+            expect(reopenTask).toHaveBeenNthCalledWith(2, 'task-2')
+            expect(reopenTask).toHaveBeenNthCalledWith(3, 'task-3')
 
             // Verify only successful uncompletions are reported
             expect(result.textContent).toMatchSnapshot()
@@ -97,7 +116,7 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
                     failures: [
                         expect.objectContaining({
                             item: 'task-2',
-                            error: 'Task not found',
+                            error: 'Item not found (HTTP 400, code 22, tag ITEM_NOT_FOUND)',
                         }),
                     ],
                     totalRequested: 3,
@@ -108,25 +127,26 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
         })
 
         it('should handle all tasks failing', async () => {
-            const apiError = new Error('API Error: Network timeout')
-            mockTodoistApi.reopenTask.mockRejectedValue(apiError)
+            // A network failure takes down the request itself, so every task shares it.
+            mockTodoistApi.sync.mockRejectedValue(new Error('API Error: Network timeout'))
 
             const result = await uncompleteTasks.execute(
                 { ids: ['task-1', 'task-2'] },
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.reopenTask).toHaveBeenCalledTimes(2)
+            expect(mockTodoistApi.sync).toHaveBeenCalledOnce()
+            expect(reopenTask).not.toHaveBeenCalled()
             expect(result.textContent).toMatchSnapshot()
         })
 
         it('should continue processing remaining tasks after failures', async () => {
             // Mock various failure scenarios
-            mockTodoistApi.reopenTask
+            reopenTask
                 .mockRejectedValueOnce(new Error('Task already active'))
-                .mockRejectedValueOnce(new Error('Task not found'))
+                .mockRejectedValueOnce(itemNotFound())
                 .mockResolvedValueOnce(true) // task-3 succeeds
-                .mockRejectedValueOnce(new Error('Permission denied'))
+                .mockRejectedValueOnce(forbidden())
                 .mockResolvedValueOnce(true) // task-5 succeeds
 
             const result = await uncompleteTasks.execute(
@@ -134,17 +154,17 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.reopenTask).toHaveBeenCalledTimes(5)
+            expect(reopenTask).toHaveBeenCalledTimes(5)
 
             // Only tasks 3 and 5 should be in uncompleted list
             expect(result.textContent).toMatchSnapshot()
         })
 
         it('should handle different types of API errors', async () => {
-            mockTodoistApi.reopenTask
-                .mockRejectedValueOnce(new Error('Task not found'))
+            reopenTask
+                .mockRejectedValueOnce(itemNotFound())
                 .mockRejectedValueOnce(new Error('Task already active'))
-                .mockRejectedValueOnce(new Error('Permission denied'))
+                .mockRejectedValueOnce(forbidden())
                 .mockRejectedValueOnce(new Error('Rate limit exceeded'))
 
             const result = await uncompleteTasks.execute(
@@ -152,7 +172,7 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.reopenTask).toHaveBeenCalledTimes(4)
+            expect(reopenTask).toHaveBeenCalledTimes(4)
 
             // All should fail, but the tool should handle it gracefully
             expect(result.textContent).toMatchSnapshot()
@@ -162,12 +182,12 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
     describe('mixed success and failure scenarios', () => {
         it('should handle realistic mixed scenario', async () => {
             // Simulate a realistic scenario with some tasks reopening and others failing
-            mockTodoistApi.reopenTask
+            reopenTask
                 .mockResolvedValueOnce(true) // regular task reopen
                 .mockResolvedValueOnce(true) // another successful reopen
                 .mockRejectedValueOnce(new Error('Task already active')) // duplicate reopen
                 .mockResolvedValueOnce(true) // successful reopen
-                .mockRejectedValueOnce(new Error('Task not found')) // deleted task
+                .mockRejectedValueOnce(itemNotFound()) // deleted task
 
             const result = await uncompleteTasks.execute(
                 {
@@ -182,7 +202,7 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.reopenTask).toHaveBeenCalledTimes(5)
+            expect(reopenTask).toHaveBeenCalledTimes(5)
 
             expect(result.textContent).toMatchSnapshot()
         })
@@ -190,7 +210,7 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
 
     describe('next steps logic validation', () => {
         it('should suggest next steps when all tasks uncomplete successfully', async () => {
-            mockTodoistApi.reopenTask.mockResolvedValue(true)
+            reopenTask.mockResolvedValue(true)
 
             const result = await uncompleteTasks.execute(
                 { ids: ['task-1', 'task-2'] },
@@ -202,9 +222,7 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
         })
 
         it('should suggest reviewing failures when mixed results', async () => {
-            mockTodoistApi.reopenTask
-                .mockResolvedValueOnce(true)
-                .mockRejectedValueOnce(new Error('Task not found'))
+            reopenTask.mockResolvedValueOnce(true).mockRejectedValueOnce(itemNotFound())
 
             const result = await uncompleteTasks.execute(
                 { ids: ['task-1', 'task-2'] },
@@ -216,7 +234,7 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
         })
 
         it('should suggest checking IDs when all tasks fail', async () => {
-            mockTodoistApi.reopenTask.mockRejectedValue(new Error('Task not found'))
+            reopenTask.mockRejectedValue(itemNotFound())
 
             const result = await uncompleteTasks.execute(
                 { ids: ['bad-id-1', 'bad-id-2'] },
@@ -230,7 +248,7 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
 
     describe('error message truncation', () => {
         it('should truncate failure messages after 3 errors', async () => {
-            mockTodoistApi.reopenTask
+            reopenTask
                 .mockRejectedValueOnce(new Error('Error 1'))
                 .mockRejectedValueOnce(new Error('Error 2'))
                 .mockRejectedValueOnce(new Error('Error 3'))
@@ -250,7 +268,7 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
         })
 
         it('should not show truncation message for exactly 3 errors', async () => {
-            mockTodoistApi.reopenTask
+            reopenTask
                 .mockRejectedValueOnce(new Error('Error 1'))
                 .mockRejectedValueOnce(new Error('Error 2'))
                 .mockRejectedValueOnce(new Error('Error 3'))
@@ -266,79 +284,106 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
         })
     })
 
-    describe('large batches', () => {
-        it('reopens up to the write limit of tasks at once, reporting them in input order', async () => {
-            let active = 0
-            let peak = 0
-            mockTodoistApi.reopenTask.mockImplementation(async (id: string) => {
-                active += 1
-                peak = Math.max(peak, active)
-                // Later tasks answer sooner, so the requests finish out of order.
-                const position = Number(id.replace('task-', ''))
-                await new Promise((resolve) => setTimeout(resolve, 2 * (10 - position)))
-                active -= 1
+    describe('one Sync request per batch', () => {
+        function sentCommands() {
+            return mockTodoistApi.sync.mock.calls.flatMap(([request]) => request.commands ?? [])
+        }
+
+        it('reopens the whole batch in one request, in input order', async () => {
+            reopenTask.mockResolvedValue(true)
+
+            const result = await uncompleteTasks.execute(
+                { ids: ['task-1', 'task-2', 'task-3'] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.sync).toHaveBeenCalledOnce()
+            expect(sentCommands()).toEqual(
+                ['task-1', 'task-2', 'task-3'].map((id) =>
+                    expect.objectContaining({ type: 'item_uncomplete', args: { id } }),
+                ),
+            )
+            expect(result.structuredContent.uncompleted).toEqual(['task-1', 'task-2', 'task-3'])
+        })
+
+        it('reports a task Todoist cannot find without failing the others', async () => {
+            reopenTask.mockImplementation(async (id) => {
+                if (id === 'gone') throw itemNotFound()
                 return true
             })
-            const ids = Array.from({ length: 10 }, (_, index) => `task-${index}`)
 
-            const result = await uncompleteTasks.execute({ ids }, mockTodoistApi)
+            const result = await uncompleteTasks.execute(
+                { ids: ['task-1', 'gone', 'task-2'] },
+                mockTodoistApi,
+            )
 
+            expect(result.structuredContent.uncompleted).toEqual(['task-1', 'task-2'])
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'gone', error: 'Item not found (HTTP 400, code 22, tag ITEM_NOT_FOUND)' },
+            ])
+        })
+
+        it('sends a task listed twice once', async () => {
+            reopenTask.mockResolvedValue(true)
+
+            const result = await uncompleteTasks.execute(
+                { ids: ['task-1', 'task-1'] },
+                mockTodoistApi,
+            )
+
+            expect(reopenTask).toHaveBeenCalledOnce()
+            expect(result.structuredContent.uncompleted).toEqual(['task-1', 'task-1'])
+        })
+
+        it('keeps parallel calls for one account within the write limit', async () => {
+            let active = 0
+            let peak = 0
+            mockTodoistApi.sync.mockImplementation(async ({ commands = [] }) => {
+                active += 1
+                peak = Math.max(peak, active)
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                active -= 1
+                return { syncStatus: allApplied(commands), tempIdMapping: {} }
+            })
+
+            await Promise.all(
+                Array.from({ length: 6 }, (_, index) =>
+                    uncompleteTasks.execute({ ids: [`task-${index}`] }, mockTodoistApi),
+                ),
+            )
+
+            expect(mockTodoistApi.sync).toHaveBeenCalledTimes(6)
             expect(peak).toBe(ConcurrencyLimits.WRITES)
-            expect(result.structuredContent.uncompleted).toEqual(ids)
         })
 
-        it('frees its write slot while waiting to retry, so other tasks can start', async () => {
-            vi.useFakeTimers()
-            try {
-                const busy = Object.assign(new Error('Service Unavailable'), {
-                    httpStatusCode: 503,
-                })
-                const turnedAway = new Set(['task-0', 'task-1', 'task-2', 'task-3'])
-                mockTodoistApi.reopenTask.mockImplementation(async (id: string) => {
-                    if (turnedAway.delete(id)) throw busy
-                    return true
-                })
-                const ids = ['task-0', 'task-1', 'task-2', 'task-3', 'task-4']
-
-                const promise = uncompleteTasks.execute({ ids }, mockTodoistApi)
-                // Shorter than any retry delay: the first four are still waiting to retry.
-                await vi.advanceTimersByTimeAsync(10)
-
-                expect(mockTodoistApi.reopenTask).toHaveBeenCalledWith('task-4')
-
-                await vi.runAllTimersAsync()
-                const result = await promise
-                expect(result.structuredContent.uncompleted).toEqual(ids)
-            } finally {
-                vi.useRealTimers()
-            }
-        })
-
-        it('retries a transient 502, since reopening an open task changes nothing', async () => {
-            vi.useFakeTimers()
-            try {
-                mockTodoistApi.reopenTask
-                    .mockRejectedValueOnce(
-                        Object.assign(new Error('Bad Gateway'), { httpStatusCode: 502 }),
+        it.each([502, 503, 504])(
+            'retries the request after a %i, since Todoist skips commands it already applied',
+            async (status) => {
+                vi.useFakeTimers()
+                try {
+                    reopenTask.mockResolvedValue(true)
+                    mockTodoistApi.sync.mockRejectedValueOnce(
+                        Object.assign(new Error('Gateway trouble'), { httpStatusCode: status }),
                     )
-                    .mockResolvedValueOnce(true)
 
-                const promise = uncompleteTasks.execute({ ids: ['task-1'] }, mockTodoistApi)
-                await vi.runAllTimersAsync()
-                const result = await promise
+                    const promise = uncompleteTasks.execute({ ids: ['task-1'] }, mockTodoistApi)
+                    await vi.runAllTimersAsync()
+                    const result = await promise
 
-                expect(mockTodoistApi.reopenTask).toHaveBeenCalledTimes(2)
-                expect(result.structuredContent.uncompleted).toEqual(['task-1'])
-                expect(result.structuredContent.failures).toEqual([])
-            } finally {
-                vi.useRealTimers()
-            }
-        })
+                    expect(mockTodoistApi.sync).toHaveBeenCalledTimes(2)
+                    const [first, second] = mockTodoistApi.sync.mock.calls
+                    expect(second?.[0].commands?.[0]?.uuid).toBe(first?.[0].commands?.[0]?.uuid)
+                    expect(result.structuredContent.uncompleted).toEqual(['task-1'])
+                } finally {
+                    vi.useRealTimers()
+                }
+            },
+        )
     })
 
     describe('edge cases', () => {
         it('should handle minimum one task required by schema', async () => {
-            mockTodoistApi.reopenTask.mockResolvedValue(true)
+            reopenTask.mockResolvedValue(true)
 
             const result = await uncompleteTasks.execute({ ids: ['single-task'] }, mockTodoistApi)
 
@@ -346,17 +391,17 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
         })
 
         it('should handle tasks with special ID formats', async () => {
-            mockTodoistApi.reopenTask.mockResolvedValue(true)
+            reopenTask.mockResolvedValue(true)
 
             const result = await uncompleteTasks.execute(
                 { ids: ['proj_123_task_456', 'task-with-dashes', '1234567890'] },
                 mockTodoistApi,
             )
 
-            expect(mockTodoistApi.reopenTask).toHaveBeenCalledTimes(3)
-            expect(mockTodoistApi.reopenTask).toHaveBeenCalledWith('proj_123_task_456')
-            expect(mockTodoistApi.reopenTask).toHaveBeenCalledWith('task-with-dashes')
-            expect(mockTodoistApi.reopenTask).toHaveBeenCalledWith('1234567890')
+            expect(reopenTask).toHaveBeenCalledTimes(3)
+            expect(reopenTask).toHaveBeenCalledWith('proj_123_task_456')
+            expect(reopenTask).toHaveBeenCalledWith('task-with-dashes')
+            expect(reopenTask).toHaveBeenCalledWith('1234567890')
 
             expect(result.textContent).toMatchSnapshot()
         })

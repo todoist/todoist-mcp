@@ -3,6 +3,7 @@ import { type Mocked, vi } from 'vitest'
 import {
     answerTaskCloses,
     answerTaskCreates,
+    answerTaskReopens,
     createMockProject,
     createMockTask,
     createMockUser,
@@ -52,7 +53,7 @@ const cases = [
         of: 1,
         item: TEST_IDS.TASK_1,
         run: (client: Mocked<TodoistApi>) => {
-            client.reopenTask.mockRejectedValue(apiError)
+            answerTaskReopens(client, vi.fn().mockRejectedValue(apiError))
             return uncompleteTasks.execute({ ids: [TEST_IDS.TASK_1] }, client)
         },
     },

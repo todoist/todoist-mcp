@@ -323,6 +323,22 @@ export function answerTaskCloses(
 }
 
 /**
+ * Answers `sync` the way the Sync API answers `item_uncomplete` commands, for tools
+ * that reopen tasks through Sync. Each command's task ID goes to `reopenTask`, which
+ * a test mocks like the REST reopen: resolving reopens the task, and an error it
+ * rejects with becomes that command's error status.
+ */
+export function answerTaskReopens(
+    client: Mocked<TodoistApi>,
+    reopenTask: (id: string) => Promise<unknown>,
+): void {
+    answerSyncCommands(client, async (command) => {
+        await reopenTask(String(command.args.id))
+        return undefined
+    })
+}
+
+/**
  * Applies each command a `sync` call carries with `apply`, reporting it as applied
  * or with the error status the API would give. `apply` returns the ID of anything
  * it created, which is mapped from the command's `tempId`.
@@ -461,16 +477,19 @@ export function createApiError({
     status,
     error,
     tag,
+    code,
 }: {
     status: number
     error: string
     tag?: string
+    code?: number
 }): Error {
     return Object.assign(new Error(`Request failed with status code ${status}`), {
         httpStatusCode: status,
         responseData: {
             error,
             ...(tag ? { error_tag: tag } : {}),
+            ...(code !== undefined ? { error_code: code } : {}),
             http_code: status,
         },
     })
