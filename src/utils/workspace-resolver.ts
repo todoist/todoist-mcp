@@ -122,6 +122,18 @@ export class WorkspaceResolver {
     }
 
     /**
+     * List every workspace the user belongs to, from the same cache that
+     * {@link resolveWorkspace} reads.
+     */
+    async listWorkspaces(client: TodoistApi): Promise<ResolvedWorkspace[]> {
+        const workspaces = await this.getWorkspaces(client)
+        return workspaces.map((workspace) => ({
+            workspaceId: workspace.id,
+            workspaceName: workspace.name,
+        }))
+    }
+
+    /**
      * Clear all client caches and detach pending requests — useful for testing.
      */
     clearCache(): void {

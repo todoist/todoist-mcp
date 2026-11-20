@@ -169,12 +169,16 @@ export async function searchAllProjects(client: TodoistApi, query: string): Prom
  * not refetch the pages already read.
  *
  * @param client - The Todoist API client
+ * @param folderId - Only the projects in this workspace folder
  * @returns Promise resolving to array of active projects
  */
-export async function fetchAllActiveProjects(client: TodoistApi): Promise<Project[]> {
+export async function fetchAllActiveProjects(
+    client: TodoistApi,
+    folderId?: string,
+): Promise<Project[]> {
     return fetchAllPages<GetProjectsArgs, GetProjectsResponse, Project>({
         apiMethod: (args) => executeWithRetry(() => client.getProjects(args)),
-        args: {},
+        args: folderId ? { folderId } : {},
         limit: ApiLimits.PROJECTS_MAX,
     })
 }

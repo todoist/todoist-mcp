@@ -935,6 +935,57 @@ describe(`${FIND_PROJECTS} tool`, () => {
             ])
         })
 
+        it("should folder-filter both halves of archivedStatus 'all', asking the API for the active half", async () => {
+            mockTodoistApi.getProjects.mockResolvedValue(createMockApiResponse([campaigns]))
+            mockTodoistApi.getArchivedProjects.mockResolvedValue(
+                createMockApiResponse([
+                    { ...campaigns, id: 'old-campaigns-id', isArchived: true },
+                    { ...contracts, id: 'old-contracts-id', isArchived: true },
+                ]),
+            )
+
+            const result = await findProjects.execute(
+                { limit: 50, archivedStatus: 'all', folderId: TEST_IDS.FOLDER_1 },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.getProjects).toHaveBeenCalledWith({
+                folderId: TEST_IDS.FOLDER_1,
+                cursor: null,
+                limit: 200,
+            })
+            expect(result.structuredContent.projects.map((p) => p.id)).toEqual([
+                'campaigns-id',
+                'old-campaigns-id',
+            ])
+        })
+
+        it('should say when only projects the user has not joined are in the folder', async () => {
+            mockTodoistApi.getProjects.mockResolvedValue(createMockApiResponse([]))
+            mockTodoistApi.getWorkspaces.mockResolvedValue([createMockWorkspace()])
+            mockTodoistApi.getWorkspaceActiveProjects.mockResolvedValue({
+                results: [
+                    createMockWorkspaceProjectSummary({
+                        id: 'launch-id',
+                        name: 'Launch',
+                        folderId: TEST_IDS.FOLDER_1,
+                    }),
+                ],
+                nextCursor: null,
+                hasMore: false,
+            })
+
+            const result = await findProjects.execute(
+                { limit: 50, includeUnjoined: true, folderId: TEST_IDS.FOLDER_1 },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.unjoinedProjects?.map((p) => p.id)).toEqual([
+                'launch-id',
+            ])
+            expect(result.textContent).toMatchSnapshot()
+        })
+
         it('should say when the folder holds no projects', async () => {
             mockTodoistApi.getProjects.mockResolvedValue(createMockApiResponse([]))
 

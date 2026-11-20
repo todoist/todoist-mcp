@@ -4,6 +4,7 @@ import type { TodoistTool } from '../todoist-tool.js'
 import { fetchAllPages } from '../tool-helpers.js'
 import { ApiLimits } from '../utils/constants.js'
 import { FolderSchema, type FolderSummary, toFolderSummary } from '../utils/output-schemas.js'
+import { summarizeList } from '../utils/response-builders.js'
 import { executeWithRetry } from '../utils/retry.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { type ResolvedWorkspace, workspaceResolver } from '../utils/workspace-resolver.js'
@@ -37,10 +38,7 @@ const findFolders = {
     async execute({ workspace }, client) {
         const workspaces = workspace
             ? [await workspaceResolver.resolveWorkspace(client, workspace)]
-            : (await client.getWorkspaces()).map(({ id, name }) => ({
-                  workspaceId: id,
-                  workspaceName: name,
-              }))
+            : await workspaceResolver.listWorkspaces(client)
 
         const listings: WorkspaceFolders[] = await Promise.all(
             workspaces.map(async (resolved) => ({
@@ -79,14 +77,16 @@ function generateTextContent(listings: WorkspaceFolders[]): string {
     }
 
     return listings
-        .map(({ workspaceId, workspaceName, folders }) => {
-            const heading = `Folders in ${workspaceName} (id=${workspaceId})`
-            if (folders.length === 0) {
-                return `${heading}: none`
-            }
-            const lines = folders.map((folder) => `    ${folder.name} • id=${folder.id}`)
-            return [`${heading}: ${folders.length}`, ...lines].join('\n')
-        })
+        .map(({ workspaceId, workspaceName, folders }) =>
+            summarizeList({
+                subject: `Folders in ${workspaceName} (id=${workspaceId})`,
+                count: folders.length,
+                previewLines: folders
+                    .map((folder) => `    ${folder.name} • id=${folder.id}`)
+                    .join('\n'),
+                zeroReasonHints: ['No folders in this workspace'],
+            }),
+        )
         .join('\n')
 }
 

@@ -141,6 +141,24 @@ describe('WorkspaceResolver', () => {
         })
     })
 
+    describe('listWorkspaces', () => {
+        it('should list every workspace, sharing the cache with resolveWorkspace', async () => {
+            mockTodoistApi.getWorkspaces.mockResolvedValue([
+                createMockWorkspace({ id: '111', name: 'Engineering' }),
+                createMockWorkspace({ id: '222', name: 'Marketing' }),
+            ])
+
+            await resolver.resolveWorkspace(mockTodoistApi, 'Engineering')
+            const listed = await resolver.listWorkspaces(mockTodoistApi)
+
+            expect(listed).toEqual([
+                { workspaceId: '111', workspaceName: 'Engineering' },
+                { workspaceId: '222', workspaceName: 'Marketing' },
+            ])
+            expect(mockTodoistApi.getWorkspaces).toHaveBeenCalledTimes(1)
+        })
+    })
+
     describe('caching', () => {
         it('shares in-flight requests only within the same client', async () => {
             const workspaces = [
