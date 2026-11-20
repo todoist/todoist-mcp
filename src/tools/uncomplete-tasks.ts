@@ -36,13 +36,14 @@ const uncompleteTasks = {
         const failures: Array<{ item: string; error: string; code?: string }> = []
 
         // Up to the write limit at once: one request per task, one after another,
-        // takes a large batch past the time a client waits for a tool call.
+        // takes a large batch past the time a client waits for a tool call. Each
+        // attempt takes its own slot, so a task waiting to retry holds none.
         const writeLimiter = getWriteLimiter(client)
         const outcomes = await Promise.allSettled(
             args.ids.map((id) =>
                 // Reopening a task that is already open changes nothing, so any
                 // transient failure is safe to retry.
-                writeLimiter(() => executeWithRetry(() => client.reopenTask(id))),
+                executeWithRetry(() => writeLimiter(() => client.reopenTask(id))),
             ),
         )
 

@@ -270,10 +270,12 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
         it('reopens up to the write limit of tasks at once, reporting them in input order', async () => {
             let active = 0
             let peak = 0
-            mockTodoistApi.reopenTask.mockImplementation(async () => {
+            mockTodoistApi.reopenTask.mockImplementation(async (id: string) => {
                 active += 1
                 peak = Math.max(peak, active)
-                await new Promise((resolve) => setTimeout(resolve, 5))
+                // Later tasks answer sooner, so the requests finish out of order.
+                const position = Number(id.replace('task-', ''))
+                await new Promise((resolve) => setTimeout(resolve, 2 * (10 - position)))
                 active -= 1
                 return true
             })
@@ -283,6 +285,33 @@ describe(`${UNCOMPLETE_TASKS} tool`, () => {
 
             expect(peak).toBe(ConcurrencyLimits.WRITES)
             expect(result.structuredContent.uncompleted).toEqual(ids)
+        })
+
+        it('frees its write slot while waiting to retry, so other tasks can start', async () => {
+            vi.useFakeTimers()
+            try {
+                const busy = Object.assign(new Error('Service Unavailable'), {
+                    httpStatusCode: 503,
+                })
+                const turnedAway = new Set(['task-0', 'task-1', 'task-2', 'task-3'])
+                mockTodoistApi.reopenTask.mockImplementation(async (id: string) => {
+                    if (turnedAway.delete(id)) throw busy
+                    return true
+                })
+                const ids = ['task-0', 'task-1', 'task-2', 'task-3', 'task-4']
+
+                const promise = uncompleteTasks.execute({ ids }, mockTodoistApi)
+                // Shorter than any retry delay: the first four are still waiting to retry.
+                await vi.advanceTimersByTimeAsync(10)
+
+                expect(mockTodoistApi.reopenTask).toHaveBeenCalledWith('task-4')
+
+                await vi.runAllTimersAsync()
+                const result = await promise
+                expect(result.structuredContent.uncompleted).toEqual(ids)
+            } finally {
+                vi.useRealTimers()
+            }
         })
 
         it('retries a transient 502, since reopening an open task changes nothing', async () => {

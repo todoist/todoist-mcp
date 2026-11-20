@@ -36,14 +36,15 @@ const completeTasks = {
         const failures: Array<{ item: string; error: string; code?: string }> = []
 
         // Up to the write limit at once: one request per task, one after another,
-        // takes a large batch past the time a client waits for a tool call.
+        // takes a large batch past the time a client waits for a tool call. Each
+        // attempt takes its own slot, so a task waiting to retry holds none.
         const writeLimiter = getWriteLimiter(client)
         const outcomes = await Promise.allSettled(
             args.ids.map((id) =>
                 // Closing a recurring task moves it to its next occurrence, so a
                 // repeat after a 502/504 that had already landed would skip one.
                 // Only a 503, where the API turned the request away, is retried.
-                writeLimiter(() => executeCreateWithRetry(() => client.closeTask(id))),
+                executeCreateWithRetry(() => writeLimiter(() => client.closeTask(id))),
             ),
         )
 
