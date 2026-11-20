@@ -91,10 +91,11 @@ const updateProjects = {
                 const skipReason = getSkipReason(project)
                 if (skipReason !== null) return { kind: 'skipped', reason: skipReason }
 
-                // An empty `description` clears it. That is already the project
-                // wire value (backend NULL_KEEPS_UNCHANGED), so forward as-is.
-                // A `folderId` of "remove" is sent as null, which the API reads as
-                // the top level of the workspace.
+                // The endpoint reads null differently per field. A null `description`
+                // keeps it unchanged (NULL_KEEPS_UNCHANGED), so "" is its clear value
+                // and is forwarded as-is. A null `folder_id` clears it (NULL_CLEARS),
+                // moving the project to the top level of its workspace, so a
+                // `folderId` of "remove" is sent as null.
                 const { id, folderId, ...rest } = project
                 const updateArgs = {
                     ...rest,

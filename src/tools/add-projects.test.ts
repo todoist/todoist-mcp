@@ -908,21 +908,20 @@ describe(`${ADD_PROJECTS} tool`, () => {
         it("should create each project in the folder, in the folder's workspace", async () => {
             mockSyncCreates()
 
-            const result = await addProjects.execute(
-                {
-                    projects: [
-                        { name: 'campaigns', folderId: TEST_IDS.FOLDER_1, color: 'red' },
-                        { name: 'events', folderId: TEST_IDS.FOLDER_1, workspace: 'Acme' },
-                    ],
-                },
-                mockTodoistApi,
-            )
+            // Parsed as a client's call is, so a schema without folderId would strip it.
+            const args = z.object(addProjects.parameters).parse({
+                projects: [
+                    { name: 'campaigns', folderId: TEST_IDS.FOLDER_1, color: 'red' },
+                    { name: 'events', folderId: TEST_IDS.FOLDER_1, workspace: 'Acme' },
+                ],
+            })
+            const result = await addProjects.execute(args, mockTodoistApi)
 
             // The folder is read once for the batch, and names the workspace.
             expect(mockTodoistApi.getFolder).toHaveBeenCalledExactlyOnceWith(TEST_IDS.FOLDER_1)
-            const sentCommands = mockTodoistApi.sync.mock.calls.flatMap(
-                ([request]) => request.commands ?? [],
-            )
+            // Every project goes in one Sync request.
+            expect(mockTodoistApi.sync).toHaveBeenCalledTimes(1)
+            const sentCommands = mockTodoistApi.sync.mock.calls[0]?.[0].commands ?? []
             expect(sentCommands.map(({ type, args }) => ({ type, args }))).toEqual([
                 {
                     type: 'project_add',
