@@ -399,6 +399,63 @@ const SCENARIOS: Scenario[] = [
                 ? null
                 : `not a delete of folder ${EVAL_FOLDER_ID}: ${JSON.stringify(input)}`,
         guards: 'delete-object folder: deleting a folder',
+        // A saved template can't be deleted through the API, so a template the
+        // user didn't want stays until they remove it in the app. The ID is in
+        // the prompt so the first call is the save, not a lookup.
+        id: 'save-template-shows-draft',
+        prompt: 'Save my project 6XG4Pr0j3c ("Client onboarding") as a template.',
+        expect: [ToolNames.ADD_TEMPLATE],
+        check: (input) =>
+            input.preview === false
+                ? 'saved straight away, without showing the user the draft first'
+                : input.projectId === '6XG4Pr0j3c'
+                  ? null
+                  : `projectId is ${JSON.stringify(input.projectId)}, so this doesn't start from the user's project`,
+        guards: 'add-template from a project: the draft comes first unless the user asked to save as is',
+    },
+    {
+        id: 'save-template-as-is',
+        prompt: 'Save my project 6XG4Pr0j3c ("Client onboarding") as a template called "Onboarding", as it is. No changes needed.',
+        expect: [ToolNames.ADD_TEMPLATE],
+        check: (input) =>
+            input.preview !== false
+                ? `preview is ${JSON.stringify(input.preview)}, so the user who asked to save as is gets a draft`
+                : input.projectId !== '6XG4Pr0j3c'
+                  ? `projectId is ${JSON.stringify(input.projectId)}, so this doesn't save the user's project`
+                  : input.name !== 'Onboarding'
+                    ? `name is ${JSON.stringify(input.name)}, not the "Onboarding" the user asked for`
+                    : typeof input.description !== 'string' || input.description.trim() === ''
+                      ? 'no description, which a save needs, so the call would fail'
+                      : null,
+        guards: 'add-template from a project: saving in one call when the user asked for no changes',
+    },
+    {
+        id: 'csv-template-shows-draft',
+        prompt: 'Make a template out of this CSV:\n\nTYPE,CONTENT,PRIORITY\nsection,Week 1,\ntask,Plan the launch,1\ntask,Write the announcement,2',
+        expect: [ToolNames.ADD_TEMPLATE],
+        check: (input) =>
+            input.preview === false
+                ? 'created straight away, without showing the user the draft first'
+                : typeof input.csvFileContent === 'string'
+                  ? null
+                  : 'the CSV was not passed as csvFileContent',
+        guards: 'add-template from CSV: the draft comes first unless the user asked to save as is',
+    },
+    {
+        // Before add-template, a template from scratch had to borrow an
+        // unrelated project's ID, inheriting its color and workspace.
+        id: 'template-from-scratch',
+        prompt: 'Create a template called "Weekly review" with three tasks: clear the inbox, review the calendar, and plan next week.',
+        expect: [ToolNames.ADD_TEMPLATE],
+        check: (input) => {
+            if (input.projectId !== undefined) {
+                return `projectId is ${JSON.stringify(input.projectId)}, so the template borrows a project`
+            }
+            return input.preview === false
+                ? 'saved straight away, without showing the user the draft first'
+                : null
+        },
+        guards: 'add-template from scratch: no project, and the draft comes first',
     },
 ]
 

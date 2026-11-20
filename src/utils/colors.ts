@@ -13,15 +13,25 @@ function normalizeColor(val: unknown): string | undefined {
     return found?.key // undefined if not recognized
 }
 
-const colorDescription =
+const colorChoices =
     'Color for the entity. Accepts a color key (e.g. "berry_red") or display name (e.g. "Berry Red"). ' +
-    `Valid colors: ${colorKeys.join(', ')}. ` +
-    'Unrecognized colors are omitted and charcoal will be used as the default.'
+    `Valid colors: ${colorKeys.join(', ')}. `
+
+const colorDescription =
+    colorChoices + 'Unrecognized colors are omitted and charcoal will be used as the default.'
 
 // For INPUT: normalizes key or display name → canonical key (or undefined if unrecognized)
 export const ColorSchema = z
     .preprocess(normalizeColor, z.enum(colorKeys).optional())
     .describe(colorDescription)
+
+/**
+ * ColorSchema with a different default: keeps the list of valid colors and swaps the last
+ * sentence, since `.describe()` replaces the whole description.
+ */
+export function colorSchemaWithDefault(defaultText: string) {
+    return ColorSchema.describe(colorChoices + defaultText)
+}
 
 // For OUTPUT: strict enum. Kept for reference — output schemas use ColorOutputSchema.
 export const ColorKeySchema = z.enum(colorKeys)
