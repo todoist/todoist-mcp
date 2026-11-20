@@ -213,6 +213,15 @@ const SCENARIOS: Scenario[] = [
         guards: 'add-projects input: templateId creates a project from a template',
     },
     {
+        id: 'edit-template-reads-first',
+        prompt: 'In my saved template UT_28ExampleTemplateId000001, rename the "Kickoff" task to "Kickoff meeting".',
+        // update-template replaces the whole content, so the content has to be read first.
+        expect: [ToolNames.FETCH_OBJECT],
+        check: (input) =>
+            input.type === 'template' ? null : `not a template fetch: ${JSON.stringify(input)}`,
+        guards: 'fetch-object and update-template descriptions: read the content before editing it',
+    },
+    {
         id: 'priority-string',
         prompt: 'Set task 6XG4Vw2c9J to high priority.',
         expect: [ToolNames.UPDATE_TASKS],

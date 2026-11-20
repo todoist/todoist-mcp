@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { BatchLimits, TemplateContentLimits } from './constants.js'
 import { convertNumberToPriority, convertPriorityToNumber, PrioritySchema } from './priorities.js'
 
-// get-template returns complete dates; a new date can be just `string`. Send dates back as
+// fetch-object returns a template's complete dates; a new date can be just `string`. Send dates back as
 // received so their type, time and timezone are kept.
 const ContentDateSchema = z.object({
     date: z.string().optional().describe('ISO date or datetime.'),
@@ -26,7 +26,7 @@ const ContentCommentFields = {
 }
 
 /**
- * A template's full content, as get-template returns it and update-template takes it back.
+ * A template's full content, as fetch-object returns it and update-template takes it back.
  * IDs are references within the content only.
  */
 const TemplateContentSchema = z.object({
@@ -145,6 +145,45 @@ function toSdkTemplateContent(content: ToolTemplateContent): TemplateContent {
     }
 }
 
+/** The counts a template edit can change, in the order replies list them. */
+function countContent(content: TemplateContent): Array<[label: string, count: number]> {
+    return [
+        ['sections', content.sections.length],
+        ['tasks', content.tasks.length],
+        ['assigned tasks', content.tasks.filter((task) => task.responsibleUid).length],
+        ['comments', content.comments.length + content.projectComments.length],
+    ]
+}
+
+/**
+ * One line comparing two contents, e.g. "layout list → board, sections 0 → 1, tasks 1 → 2,
+ * assigned tasks 0 → 0, comments 0 → 0".
+ */
+function describeContentChange(before: TemplateContent, after: TemplateContent): string {
+    const layout = (content: TemplateContent) => content.projects[0]?.viewStyle ?? 'none'
+    const afterCounts = countContent(after)
+    return [
+        `layout ${layout(before)} → ${layout(after)}`,
+        ...countContent(before).map(
+            ([label, count], index) => `${label} ${count} → ${afterCounts[index]?.[1]}`,
+        ),
+    ].join(', ')
+}
+
+/**
+ * What the backend didn't keep of the content sent, e.g. "assigned tasks sent 2, saved 1",
+ * or undefined when it kept everything. It drops assignees who are not workspace members,
+ * which an addition in the same edit would hide in {@link describeContentChange}.
+ */
+function describeDroppedContent(sent: TemplateContent, saved: TemplateContent): string | undefined {
+    const savedCounts = countContent(saved)
+    const dropped = countContent(sent).flatMap(([label, count], index) => {
+        const kept = savedCounts[index]?.[1] ?? 0
+        return kept < count ? [`${label} sent ${count}, saved ${kept}`] : []
+    })
+    return dropped.length > 0 ? dropped.join('; ') : undefined
+}
+
 const MAX_OUTLINED_TASKS = 20
 
 /**
@@ -174,6 +213,8 @@ function outlineTemplateContent(content: ToolTemplateContent): string {
 }
 
 export {
+    describeContentChange,
+    describeDroppedContent,
     outlineTemplateContent,
     TemplateContentSchema,
     toSdkTemplateContent,

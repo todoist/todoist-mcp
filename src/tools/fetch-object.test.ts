@@ -1,13 +1,22 @@
-import type { Comment, Section, Task, TodoistApi } from '@todoist/sdk'
+import {
+    type Comment,
+    type Section,
+    type Task,
+    type TodoistApi,
+    TodoistArgumentError,
+} from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { z } from 'zod'
 import { formatToolExecutionError } from '../tool-execution-error.js'
 import {
     createApiError,
     createMockProject,
     createMockTask,
+    createMockTemplate,
     createMockWorkspace,
     createMockWorkspaceProject,
     createMockWorkspaceProjectSummary,
+    getAdvertisedPattern,
 } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { fetchObject } from './fetch-object.js'
@@ -18,6 +27,8 @@ const mockTodoistApi = {
     getProject: vi.fn(),
     getComment: vi.fn(),
     getSection: vi.fn(),
+    getTemplate: vi.fn(),
+    getTemplateContent: vi.fn(),
     getTasks: vi.fn(),
     getProjects: vi.fn(),
     getWorkspaces: vi.fn(),
@@ -696,6 +707,192 @@ describe(`${FETCH_OBJECT} tool`, () => {
             await expect(
                 fetchObject.execute({ type: 'project', id: 'project123' }, mockTodoistApi),
             ).rejects.toThrow('Failed to fetch project with id project123: String error')
+        })
+    })
+
+    describe('fetching templates', () => {
+        const TEMPLATE = createMockTemplate({
+            templateColor: 'sky_blue',
+            creator: null,
+            workspaceId: '111',
+            canEdit: true,
+        })
+
+        beforeEach(() => {
+            mockTodoistApi.getTemplate.mockResolvedValue(TEMPLATE)
+            mockTodoistApi.getTemplateContent.mockResolvedValue({
+                templateType: 'project',
+                workspaceId: '111',
+                content: {
+                    projects: [{ viewStyle: 'board', description: null, icon: null }],
+                    sections: [{ id: 's1', name: 'Week 1', description: null }],
+                    tasks: [
+                        {
+                            id: 't1',
+                            content: 'Plan',
+                            sectionId: 's1',
+                            parentId: null,
+                            priority: 4,
+                            due: {
+                                date: '2026-11-23T09:00:00',
+                                string: 'every monday at 9am',
+                                lang: 'en',
+                                isRecurring: true,
+                                timezone: 'Europe/Rome',
+                            },
+                            responsibleUid: '42',
+                        },
+                        { id: 't2', content: 'Details', parentId: 't1', priority: 1 },
+                    ],
+                    comments: [{ taskId: 't1', content: 'Check this', postedUid: null }],
+                    projectComments: [],
+                    projectViewOptionsDefaults: [],
+                },
+            })
+        })
+
+        // id can be a template URL, so the schema narrows it to Todoist hosts, as
+        // import-project-template's templateId does. Clients read the advertised pattern.
+        describe('id validation', () => {
+            const schema = z.object(fetchObject.parameters)
+            const pattern = getAdvertisedPattern(fetchObject.parameters, 'id')
+
+            it.each([
+                ['task', '6X7rM8997g3RQmvh'],
+                ['template', 'product-launch'],
+                [
+                    'template',
+                    'https://app.todoist.com/app/templates/category/my-templates/UT_28Ex1/view',
+                ],
+            ])('accepts a %s id %s', (type, id) => {
+                expect(schema.safeParse({ type, id }).success).toBe(true)
+                expect(pattern.test(id)).toBe(true)
+            })
+
+            it.each([
+                'https://attacker.example/templates/product-launch',
+                'https://todoist.com.attacker.example/templates/product-launch',
+                'http://todoist.com/templates/product-launch',
+            ])('rejects %s', (id) => {
+                expect(schema.safeParse({ type: 'template', id }).success).toBe(false)
+                expect(pattern.test(id)).toBe(false)
+            })
+        })
+
+        it('returns the details and the content in the shape update-template takes', async () => {
+            const result = await fetchObject.execute(
+                {
+                    type: 'template',
+                    id: 'https://app.todoist.com/app/templates/category/my-templates/UT_28Ex1/view',
+                },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.getTemplate).toHaveBeenCalledWith('UT_28Ex1')
+            expect(mockTodoistApi.getTemplateContent).toHaveBeenCalledWith('UT_28Ex1')
+            expect(result.structuredContent).toMatchObject({
+                type: 'template',
+                id: 'UT_28Ex1',
+                object: {
+                    id: 'UT_28Ex1',
+                    name: 'Launch plan',
+                    description: 'Everything for a launch',
+                    color: 'sky_blue',
+                    source: 'user',
+                    workspaceId: '111',
+                    canEdit: true,
+                },
+            })
+            const { content } = result.structuredContent.object as {
+                content: Record<string, unknown>
+            }
+            expect(content.projects).toEqual([{ viewStyle: 'board' }])
+            expect(content.tasks).toEqual([
+                {
+                    id: 't1',
+                    content: 'Plan',
+                    sectionId: 's1',
+                    priority: 'p1',
+                    due: {
+                        date: '2026-11-23T09:00:00',
+                        string: 'every monday at 9am',
+                        lang: 'en',
+                        isRecurring: true,
+                        timezone: 'Europe/Rome',
+                    },
+                    responsibleUid: '42',
+                },
+                { id: 't2', content: 'Details', parentId: 't1', priority: 'p4' },
+            ])
+            expect(content.comments).toEqual([{ taskId: 't1', content: 'Check this' }])
+        })
+
+        it('reads a gallery template, which has no workspace and says nothing about editing', async () => {
+            mockTodoistApi.getTemplate.mockResolvedValue(
+                createMockTemplate({
+                    id: 'product-launch',
+                    name: 'Product launch',
+                    templateSource: 'todoist',
+                    workspaceId: null,
+                    canEdit: undefined,
+                }),
+            )
+
+            const result = await fetchObject.execute(
+                { type: 'template', id: 'product-launch' },
+                mockTodoistApi,
+            )
+
+            const object = result.structuredContent.object as Record<string, unknown>
+            expect(object).toMatchObject({ id: 'product-launch', source: 'todoist' })
+            expect(object.workspaceId).toBeUndefined()
+            expect(object.canEdit).toBeUndefined()
+        })
+
+        // A setup template creates several projects and labels, which template content
+        // can't describe, so the SDK refuses to read it.
+        it('returns a setup template without its content', async () => {
+            mockTodoistApi.getTemplate.mockResolvedValue(
+                createMockTemplate({
+                    id: 'kirsti-lang',
+                    name: 'Kirsti Lang',
+                    templateType: 'setup',
+                    templateSource: 'todoist',
+                    workspaceId: null,
+                }),
+            )
+            mockTodoistApi.getTemplateContent.mockRejectedValue(
+                new TodoistArgumentError('kirsti-lang is a setup template.'),
+            )
+
+            const result = await fetchObject.execute(
+                { type: 'template', id: 'kirsti-lang' },
+                mockTodoistApi,
+            )
+
+            const object = result.structuredContent.object as Record<string, unknown>
+            expect(object).toMatchObject({ id: 'kirsti-lang', name: 'Kirsti Lang' })
+            expect(object.content).toBeUndefined()
+            expect(result.textContent).toContain('setup template')
+        })
+
+        it('fails when a project template content cannot be read', async () => {
+            mockTodoistApi.getTemplateContent.mockRejectedValue(new Error('Server error'))
+
+            await expect(
+                fetchObject.execute({ type: 'template', id: 'UT_28Ex1' }, mockTodoistApi),
+            ).rejects.toThrow('Failed to fetch template with id UT_28Ex1: Server error')
+        })
+
+        it('outlines the tasks in the text reply', async () => {
+            const result = await fetchObject.execute(
+                { type: 'template', id: 'UT_28Ex1' },
+                mockTodoistApi,
+            )
+
+            expect(result.textContent).toBe(
+                'Found template: Launch plan • id=UT_28Ex1 • board layout, 1 section, 2 tasks.\n- Plan [Week 1] (due every monday at 9am)\n    - Details',
+            )
         })
     })
 })
