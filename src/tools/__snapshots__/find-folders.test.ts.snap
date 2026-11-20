@@ -1,0 +1,18 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`find-folders tool > every workspace > should explain that folders need a workspace when the user has none 1`] = `"The user is not in any workspace. Folders exist only in workspaces; personal projects nest under a parent project instead."`;
+
+exports[`find-folders tool > every workspace > should list the folders of every workspace when none is named 1`] = `
+"Folders in Acme (id=workspace-123): 1
+    Marketing • id=folder-123
+Folders in Studio (id=workspace-456): 1
+    Clients • id=folder-456"
+`;
+
+exports[`find-folders tool > one workspace > should list the folders of the workspace named, in sidebar order 1`] = `
+"Folders in Acme (id=workspace-123): 2
+    Marketing • id=folder-123
+    Sales • id=folder-456"
+`;
+
+exports[`find-folders tool > one workspace > should say when the workspace has no folders 1`] = `"Folders in Acme (id=workspace-123): none"`;

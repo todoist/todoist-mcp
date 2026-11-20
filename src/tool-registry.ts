@@ -17,6 +17,7 @@ import { findActivity } from './tools/find-activity.js'
 import { findComments } from './tools/find-comments.js'
 import { findCompletedTasks } from './tools/find-completed-tasks.js'
 import { findFilters } from './tools/find-filters.js'
+import { findFolders } from './tools/find-folders.js'
 import { findLabels } from './tools/find-labels.js'
 import { findProjectCollaborators } from './tools/find-project-collaborators.js'
 import { findProjects } from './tools/find-projects.js'
@@ -93,6 +94,9 @@ const toolRegistry = {
     findProjects,
     projectManagement,
     projectMove,
+
+    // Folder management tools
+    findFolders,
 
     // Section management tools
     addSections,

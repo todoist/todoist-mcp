@@ -6,6 +6,7 @@ import {
     createMockApiResponse,
     createMockProject,
     createMockWorkspace,
+    createMockWorkspaceProject,
     createMockWorkspaceProjectSummary,
     TEST_ERRORS,
     TEST_IDS,
@@ -830,6 +831,120 @@ describe(`${FIND_PROJECTS} tool`, () => {
 
             expect(result.structuredContent.projects).toEqual([])
             expect(result.textContent).not.toContain('includeUnjoined')
+        })
+    })
+
+    describe('projects in a folder', () => {
+        const campaigns = createMockWorkspaceProject({
+            id: 'campaigns-id',
+            name: 'Campaigns',
+            folderId: TEST_IDS.FOLDER_1,
+        })
+        const contracts = createMockWorkspaceProject({
+            id: 'contracts-id',
+            name: 'Contracts',
+            folderId: TEST_IDS.FOLDER_2,
+        })
+        const atRoot = createMockWorkspaceProject({ id: 'root-id', name: 'Company Goals' })
+        const personal = createMockProject({ id: 'personal-id', name: 'Groceries' })
+
+        it('should ask the API for the projects in the folder', async () => {
+            mockTodoistApi.getProjects.mockResolvedValue(
+                createMockApiResponse([campaigns], 'next-folder-page'),
+            )
+
+            const result = await findProjects.execute(
+                { limit: 50, folderId: TEST_IDS.FOLDER_1 },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.getProjects).toHaveBeenCalledWith({
+                limit: 50,
+                cursor: null,
+                folderId: TEST_IDS.FOLDER_1,
+            })
+            expect(result.structuredContent.projects.map((p) => p.id)).toEqual(['campaigns-id'])
+            expect(result.structuredContent.nextCursor).toBe('next-folder-page')
+            expect(result.textContent).toMatchSnapshot()
+        })
+
+        it('should keep only the search matches in the folder', async () => {
+            mockTodoistApi.searchProjects.mockResolvedValue(
+                createMockApiResponse([campaigns, contracts, atRoot, personal]),
+            )
+
+            const result = await findProjects.execute(
+                { limit: 50, searchText: 'c', folderId: TEST_IDS.FOLDER_1 },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.projects.map((p) => p.id)).toEqual(['campaigns-id'])
+        })
+
+        it('should keep only the archived projects in the folder, reading every page', async () => {
+            mockTodoistApi.getArchivedProjects
+                .mockResolvedValueOnce(
+                    createMockApiResponse(
+                        [{ ...contracts, id: 'old-contracts-id', isArchived: true }],
+                        'archived-page-2',
+                    ),
+                )
+                .mockResolvedValueOnce(
+                    createMockApiResponse([
+                        { ...campaigns, id: 'old-campaigns-id', isArchived: true },
+                    ]),
+                )
+
+            const result = await findProjects.execute(
+                { limit: 10, archivedStatus: 'archived', folderId: TEST_IDS.FOLDER_1 },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.getArchivedProjects).toHaveBeenCalledTimes(2)
+            expect(result.structuredContent.projects.map((p) => p.id)).toEqual(['old-campaigns-id'])
+            expect(result.structuredContent.hasMore).toBe(false)
+        })
+
+        it('should keep only the unjoined workspace projects in the folder', async () => {
+            mockTodoistApi.getProjects.mockResolvedValue(createMockApiResponse([campaigns]))
+            mockTodoistApi.getWorkspaces.mockResolvedValue([createMockWorkspace()])
+            mockTodoistApi.getWorkspaceActiveProjects.mockResolvedValue({
+                results: [
+                    createMockWorkspaceProjectSummary({
+                        id: 'launch-id',
+                        name: 'Launch',
+                        folderId: TEST_IDS.FOLDER_1,
+                    }),
+                    createMockWorkspaceProjectSummary({
+                        id: 'hiring-id',
+                        name: 'Hiring',
+                        folderId: TEST_IDS.FOLDER_2,
+                    }),
+                ],
+                nextCursor: null,
+                hasMore: false,
+            })
+
+            const result = await findProjects.execute(
+                { limit: 50, includeUnjoined: true, folderId: TEST_IDS.FOLDER_1 },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.unjoinedProjects?.map((p) => p.id)).toEqual([
+                'launch-id',
+            ])
+        })
+
+        it('should say when the folder holds no projects', async () => {
+            mockTodoistApi.getProjects.mockResolvedValue(createMockApiResponse([]))
+
+            const result = await findProjects.execute(
+                { limit: 50, folderId: TEST_IDS.FOLDER_2 },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.projects).toEqual([])
+            expect(result.textContent).toMatchSnapshot()
         })
     })
 

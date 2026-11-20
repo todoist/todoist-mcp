@@ -92,6 +92,12 @@ describeToolAnnotations({
             destructiveHint: true,
             idempotentHint: true,
         },
+        [ToolNames.FIND_FOLDERS]: {
+            title: 'Todoist: Find Folders',
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+        },
         [ToolNames.ADD_SECTIONS]: {
             title: 'Todoist: Add Sections',
             readOnlyHint: false,

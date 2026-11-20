@@ -27,6 +27,8 @@ export const ApiLimits = {
     PROJECTS_MAX: 200,
     /** Maximum limit for section listings */
     SECTIONS_MAX: 200,
+    /** Page size for reading a workspace's folders */
+    FOLDERS_MAX: 200,
     /** Batch size for fetching all tasks in a project */
     TASKS_BATCH_SIZE: 50,
     /** Maximum number of direct children returned when children are requested alongside an object */

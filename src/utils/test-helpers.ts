@@ -1,6 +1,7 @@
 import type {
     CurrentUser,
     Filter,
+    Folder,
     Label,
     PersonalProject,
     Section,
@@ -174,6 +175,22 @@ export function createMockWorkspaceProjectSummary(
         access: { visibility: 'team' },
         isPendingDefaultCollaboratorInvites: false,
         url: 'https://app.todoist.com/app/project/sales-pipeline-unjoined-project-id',
+        ...overrides,
+    }
+}
+
+/**
+ * Creates a mock workspace Folder with all required properties and sensible defaults.
+ */
+export function createMockFolder(overrides: Partial<Folder> = {}): Folder {
+    return {
+        id: TEST_IDS.FOLDER_1,
+        name: 'Marketing',
+        workspaceId: TEST_IDS.WORKSPACE_1,
+        isDeleted: false,
+        defaultOrder: 1,
+        defaultOrderKey: null,
+        childOrder: 1,
         ...overrides,
     }
 }
@@ -383,6 +400,9 @@ export const TEST_IDS = {
     SECTION_2: 'section-456',
     USER_ID: '713437',
     WORKSPACE_1: 'workspace-123',
+    WORKSPACE_2: 'workspace-456',
+    FOLDER_1: 'folder-123',
+    FOLDER_2: 'folder-456',
 } as const
 
 /**

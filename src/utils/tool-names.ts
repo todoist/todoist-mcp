@@ -23,6 +23,9 @@ export const ToolNames = {
     PROJECT_MANAGEMENT: 'project-management',
     PROJECT_MOVE: 'project-move',
 
+    // Folder management tools
+    FIND_FOLDERS: 'find-folders',
+
     // Section management tools
     ADD_SECTIONS: 'add-sections',
     UPDATE_SECTIONS: 'update-sections',

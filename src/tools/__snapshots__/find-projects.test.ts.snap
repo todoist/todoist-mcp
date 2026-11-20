@@ -16,6 +16,21 @@ Preview:
     Work Project • ⭐ • Shared • board • id=work-project-id"
 `;
 
+exports[`find-projects tool > projects in a folder > should ask the API for the projects in the folder 1`] = `
+"Projects: 1 (limit 50), more available.
+Filter: folderId: "folder-123".
+Preview:
+    Campaigns • Shared • id=campaigns-id
+Possible suggested next step:
+- Pass cursor 'next-folder-page' to fetch more results."
+`;
+
+exports[`find-projects tool > projects in a folder > should say when the folder holds no projects 1`] = `
+"Projects: 0 (limit 50).
+Filter: folderId: "folder-456".
+No results. No projects in this folder; Use find-folders to check the folder ID."
+`;
+
 exports[`find-projects tool > searching projects > should handle search with 'case insensitive matching' 1`] = `
 "All projects matching "IMPORTANT": 1.
 Filter: searchText: "IMPORTANT".

@@ -6,6 +6,7 @@ import {
     fetchAllActiveProjects,
     fetchAllArchivedProjects,
     fetchUnjoinedWorkspaceProjects,
+    isWorkspaceProject,
     mapProject,
     searchAllProjects,
 } from '../tool-helpers.js'
@@ -14,7 +15,7 @@ import { ProjectSchema as ProjectOutputSchema } from '../utils/output-schemas.js
 import { formatProjectPreview, summarizeList } from '../utils/response-builders.js'
 import { ToolNames } from '../utils/tool-names.js'
 
-const { ADD_PROJECTS, PROJECT_MANAGEMENT } = ToolNames
+const { ADD_PROJECTS, FIND_FOLDERS, PROJECT_MANAGEMENT } = ToolNames
 
 const SCOPE_NOUNS = {
     active: 'projects',
@@ -48,6 +49,11 @@ const ArgsSchema = {
         .describe(
             "Which projects to return by archive status: 'active' (default, non-archived only), 'archived' (archived only), or 'all' (both active and archived). Each project includes an isArchived field. Archived projects can be deleted via the delete-object tool (type: 'project').",
         ),
+    folderId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(`Only projects in this workspace folder (see ${FIND_FOLDERS}).`),
     includeUnjoined: z
         .boolean()
         .optional()
@@ -110,7 +116,14 @@ const findProjects = {
                 ? archived.filter((project) => wildcard.test(project.name))
                 : archived
 
-            results = [...active, ...filteredArchived]
+            // Only the paginated listing below can filter by folder server-side.
+            const { folderId } = args
+            const combined = [...active, ...filteredArchived]
+            results = folderId
+                ? combined.filter(
+                      (project) => isWorkspaceProject(project) && project.folderId === folderId,
+                  )
+                : combined
         } else {
             // Paginated single-source path
             const response =
@@ -119,7 +132,11 @@ const findProjects = {
                           limit: args.limit,
                           cursor: args.cursor ?? null,
                       })
-                    : await client.getProjects({ limit: args.limit, cursor: args.cursor ?? null })
+                    : await client.getProjects({
+                          limit: args.limit,
+                          cursor: args.cursor ?? null,
+                          ...(args.folderId ? { folderId: args.folderId } : {}),
+                      })
             results = response.results
             nextCursor = response.nextCursor
         }
@@ -147,10 +164,15 @@ type FindProjectsArgs = z.infer<z.ZodObject<typeof ArgsSchema>>
 /**
  * Searches and `archivedStatus: 'all'` return every match at once, ignoring
  * `limit` and `cursor`: they can't cursor-paginate across two sources, or while
- * filtering archived projects client-side.
+ * filtering archived projects client-side. Archived projects in a folder are
+ * filtered client-side too, as the archived listing takes no folder filter.
  */
-function returnsAllMatches({ searchText, archivedStatus }: FindProjectsArgs): boolean {
-    return Boolean(searchText) || archivedStatus === 'all'
+function returnsAllMatches({ searchText, archivedStatus, folderId }: FindProjectsArgs): boolean {
+    return (
+        Boolean(searchText) ||
+        archivedStatus === 'all' ||
+        (Boolean(folderId) && archivedStatus === 'archived')
+    )
 }
 
 /** The unjoined workspace projects to show, capped at `limit`, out of `total` matches. */
@@ -194,7 +216,12 @@ async function findUnjoinedProjects(
     }
 
     const wildcard = searchText ? compileWildcardQuery(searchText) : null
-    const matches = wildcard ? unjoined.filter((project) => wildcard.test(project.name)) : unjoined
+    const { folderId } = args
+    const matches = unjoined.filter(
+        (project) =>
+            (!wildcard || wildcard.test(project.name)) &&
+            (!folderId || project.folderId === folderId),
+    )
     return { listed: matches.slice(0, limit), total: matches.length }
 }
 
@@ -227,6 +254,9 @@ function generateTextContent({
     if (args.archivedStatus && args.archivedStatus !== 'active') {
         filterHints.push(`archivedStatus: "${args.archivedStatus}"`)
     }
+    if (args.folderId) {
+        filterHints.push(`folderId: "${args.folderId}"`)
+    }
 
     // Generate project preview lines
     const previewLimit = 10
@@ -239,7 +269,10 @@ function generateTextContent({
     // Generate helpful suggestions for empty results
     const zeroReasonHints: string[] = []
     if (projects.length === 0) {
-        if (args.searchText && unjoined?.total) {
+        if (args.folderId && !args.searchText) {
+            zeroReasonHints.push(`No ${scopeNoun} in this folder`)
+            zeroReasonHints.push(`Use ${FIND_FOLDERS} to check the folder ID`)
+        } else if (args.searchText && unjoined?.total) {
             // The matches are listed below, among the projects the user hasn't joined.
             zeroReasonHints.push('None of the projects the user has joined match')
         } else if (args.searchText) {

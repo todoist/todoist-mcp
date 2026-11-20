@@ -1,4 +1,4 @@
-import { LOCATION_TRIGGERS, REMINDER_TYPES, type Section } from '@todoist/sdk'
+import { type Folder, LOCATION_TRIGGERS, REMINDER_TYPES, type Section } from '@todoist/sdk'
 import { z } from 'zod'
 import { ColorOutputSchema } from './colors.js'
 import { PrioritySchema } from './priorities.js'
@@ -69,6 +69,22 @@ type SectionSummary = z.infer<typeof SectionSchema>
  */
 function toSectionSummary({ id, name, sectionOrder, description }: Section): SectionSummary {
     return { id, name, sectionOrder, description: description ?? undefined }
+}
+
+/**
+ * Schema for a workspace folder returned by tools
+ */
+const FolderSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    workspaceId: z.string(),
+})
+
+type FolderSummary = z.infer<typeof FolderSchema>
+
+/** Strip an SDK Folder down to the fields declared in FolderSchema. */
+function toFolderSummary({ id, name, workspaceId }: Folder): FolderSummary {
+    return { id, name, workspaceId }
 }
 
 /**
@@ -184,11 +200,14 @@ export {
     CollaboratorSchema,
     CommentSchema,
     FailureSchema,
+    FolderSchema,
+    type FolderSummary,
     LabelSchema,
     ProjectSchema,
     ReminderSchema,
     SectionSchema,
     type SectionSummary,
     TaskSchema,
+    toFolderSummary,
     toSectionSummary,
 }

@@ -31,6 +31,7 @@ import { findActivity } from './tools/find-activity.js'
 import { findComments } from './tools/find-comments.js'
 import { findCompletedTasks } from './tools/find-completed-tasks.js'
 import { findFilters } from './tools/find-filters.js'
+import { findFolders } from './tools/find-folders.js'
 import { findLabels } from './tools/find-labels.js'
 // Assignment and collaboration tools
 import { findProjectCollaborators } from './tools/find-project-collaborators.js'
@@ -87,6 +88,8 @@ export {
     analyzeProjectHealth,
     projectManagement,
     projectMove,
+    // Folder management tools
+    findFolders,
     // Section management tools
     addSections,
     findSections,
