@@ -99,9 +99,30 @@ const collaboratorsCache = new BoundedTtlCache<ProjectCollaborator[]>(
     CACHE_TTL,
 )
 
-// All-collaborator fetches still running, by cache key, so concurrent lookups
-// share one. Entries are removed as soon as their fetch settles.
-const inFlightAllCollaborators = new Map<string, Promise<ProjectCollaborator[]>>()
+// Collaborator fetches still running, by cache key, so concurrent lookups share
+// one. Entries are removed as soon as their fetch settles.
+const inFlightCollaborators = new Map<string, Promise<ProjectCollaborator[]>>()
+
+/**
+ * Returns the fetch already running for `cacheKey`, or starts one. A batch looks
+ * collaborators up in parallel, before the first fetch has filled the cache, so
+ * without this each item sends the same requests again.
+ */
+function shareInFlight(
+    cacheKey: string,
+    fetch: () => Promise<ProjectCollaborator[]>,
+): Promise<ProjectCollaborator[]> {
+    const pending = inFlightCollaborators.get(cacheKey)
+    if (pending) return pending
+
+    const request = fetch().finally(() => {
+        if (inFlightCollaborators.get(cacheKey) === request) {
+            inFlightCollaborators.delete(cacheKey)
+        }
+    })
+    inFlightCollaborators.set(cacheKey, request)
+    return request
+}
 
 /**
  * Numeric and alphanumeric IDs, but not obvious user names. A user ID is still
@@ -292,7 +313,18 @@ export class UserResolver {
         const cacheKey = this.getCacheKey(resolvedCacheScope, `project_${projectId}`)
         const cached = cacheKey ? collaboratorsCache.get(cacheKey) : undefined
         if (cached !== undefined) return cached
+        if (!cacheKey) return this.fetchProjectCollaborators(client, projectId, cacheKey)
 
+        return shareInFlight(cacheKey, () =>
+            this.fetchProjectCollaborators(client, projectId, cacheKey),
+        )
+    }
+
+    private async fetchProjectCollaborators(
+        client: TodoistApi,
+        projectId: string,
+        cacheKey: string | null,
+    ): Promise<ProjectCollaborator[]> {
         try {
             // Paginated: a large project's later collaborators would otherwise be
             // missing, so they could neither be validated as assignees nor named.
@@ -328,21 +360,9 @@ export class UserResolver {
         if (cached !== undefined) return cached
         if (!cacheKey) return this.fetchAllCollaborators(client, resolvedCacheScope, cacheKey)
 
-        // A batch resolves its users in parallel, before the first fetch has
-        // filled the cache. Sharing the fetch in flight sends the project and
-        // collaborator requests once for the whole batch, not once per user.
-        const pending = inFlightAllCollaborators.get(cacheKey)
-        if (pending) return pending
-
-        const request = this.fetchAllCollaborators(client, resolvedCacheScope, cacheKey).finally(
-            () => {
-                if (inFlightAllCollaborators.get(cacheKey) === request) {
-                    inFlightAllCollaborators.delete(cacheKey)
-                }
-            },
+        return shareInFlight(cacheKey, () =>
+            this.fetchAllCollaborators(client, resolvedCacheScope, cacheKey),
         )
-        inFlightAllCollaborators.set(cacheKey, request)
-        return request
     }
 
     private async fetchAllCollaborators(
@@ -466,7 +486,7 @@ export class UserResolver {
     clearCache(): void {
         userResolutionCache.clear()
         collaboratorsCache.clear()
-        inFlightAllCollaborators.clear()
+        inFlightCollaborators.clear()
     }
 }
 
