@@ -22,14 +22,14 @@ Completed:
 Failed (3):
     task-1 (Error: Task already completed (HTTP 400, code 0))
     task-2 (Error: Task not found (HTTP 400, code 0))
-    task-4 (Error: Permission denied (HTTP 400, code 0))."
+    task-4 (Error: Permission denied (HTTP 403, code 0, tag FORBIDDEN))."
 `;
 
 exports[`complete-tasks tool > completing multiple tasks > should handle all tasks failing 1`] = `
 "Completed tasks: 0/2 successful.
 Failed (2):
-    task-1 (Error: API Error: Network timeout (HTTP 400, code 0))
-    task-2 (Error: API Error: Network timeout (HTTP 400, code 0))."
+    task-1 (Error: API Error: Network timeout)
+    task-2 (Error: API Error: Network timeout)."
 `;
 
 exports[`complete-tasks tool > completing multiple tasks > should handle different types of API errors 1`] = `
@@ -37,7 +37,7 @@ exports[`complete-tasks tool > completing multiple tasks > should handle differe
 Failed (4):
     not-found (Error: Task not found (HTTP 400, code 0))
     already-done (Error: Task already completed (HTTP 400, code 0))
-    no-permission (Error: Permission denied (HTTP 400, code 0)), +1 more."
+    no-permission (Error: Permission denied (HTTP 403, code 0, tag FORBIDDEN)), +1 more."
 `;
 
 exports[`complete-tasks tool > completing multiple tasks > should handle partial failures gracefully 1`] = `

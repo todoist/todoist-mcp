@@ -5,6 +5,7 @@ import {
     TodoistRequestError,
     TodoistSyncError,
 } from '@todoist/sdk'
+import type { Limiter } from './concurrency.js'
 import { executeWithRetry } from './retry.js'
 
 type SyncCommandResults = {
@@ -31,16 +32,21 @@ const APPLIED: PromiseFulfilledResult<void> = { status: 'fulfilled', value: unde
  *
  * Retrying the request is safe: the Sync API skips commands whose `uuid` it has
  * already processed.
+ *
+ * Pass `limit` to count the request against a concurrency lane, such as the
+ * account's write limiter. Each attempt takes a slot of its own, so a request
+ * waiting to retry holds none.
  */
 export async function settleSyncCommands(
     client: TodoistApi,
     commands: SyncCommand[],
+    { limit = (send) => send() }: { limit?: Limiter } = {},
 ): Promise<SyncCommandResults> {
     let syncStatus: NonNullable<SyncResponse['syncStatus']>
     let tempIdMapping: Record<string, string>
 
     try {
-        const response = await executeWithRetry(() => client.sync({ commands }))
+        const response = await executeWithRetry(() => limit(() => client.sync({ commands })))
         syncStatus = response.syncStatus ?? {}
         tempIdMapping = response.tempIdMapping ?? {}
     } catch (error) {

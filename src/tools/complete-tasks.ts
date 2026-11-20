@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import type { SyncCommand, TodoistApi } from '@todoist/sdk'
+import type { SyncCommand, Task, TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
+import { formatBatchItemError } from '../tool-execution-error.js'
 import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
+import { getWriteLimiter } from '../utils/concurrency.js'
 import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema } from '../utils/output-schemas.js'
 import { summarizeBatch } from '../utils/response-builders.js'
@@ -74,7 +76,7 @@ async function closeTasks(
     ids: string[],
 ): Promise<PromiseSettledResult<void>[]> {
     const uniqueIds = [...new Set(ids)]
-    let lookups: Map<string, PromiseSettledResult<boolean>>
+    let lookups: Map<string, PromiseSettledResult<TaskState>>
     try {
         lookups = await findOpenTasks(client, uniqueIds)
     } catch (error) {
@@ -85,7 +87,7 @@ async function closeTasks(
     // recurring task again would skip an occurrence.
     const toClose = uniqueIds.filter((id) => {
         const lookup = lookups.get(id)
-        return lookup?.status === 'fulfilled' && lookup.value
+        return lookup?.status === 'fulfilled' && lookup.value === 'open'
     })
     const closed = new Map<string, PromiseSettledResult<void>>()
     if (toClose.length > 0) {
@@ -94,7 +96,10 @@ async function closeTasks(
             uuid: randomUUID(),
             args: { id },
         }))
-        const { outcomes } = await settleSyncCommands(client, commands)
+        // Counted against the account's write limit, as each REST close was.
+        const { outcomes } = await settleSyncCommands(client, commands, {
+            limit: getWriteLimiter(client),
+        })
         for (const [position, id] of toClose.entries()) {
             const outcome = outcomes[position]
             if (outcome) {
@@ -108,15 +113,20 @@ async function closeTasks(
         if (lookup?.status === 'rejected') {
             return lookup
         }
-        return (
-            closed.get(id) ?? {
-                status: 'rejected',
-                reason: new Error(
-                    `Task not found, or already completed. Check the ID with ${ToolNames.FIND_TASKS}.`,
-                ),
-            }
-        )
+        return closed.get(id) ?? { status: 'rejected', reason: notClosedReason(lookup?.value) }
     })
+}
+
+/** Why a task that was looked up wasn't sent to be closed. */
+function notClosedReason(state: TaskState | undefined): Error {
+    if (state === 'completed') {
+        return new Error('Task is already completed.')
+    }
+    // Neither listing tool can confirm a task this one couldn't read: find-tasks
+    // shows open tasks and find-completed-tasks completed ones.
+    return new Error(
+        `Task not found, or already completed. Look for it with ${ToolNames.FIND_TASKS}, or ${ToolNames.FIND_COMPLETED_TASKS} if it may be done.`,
+    )
 }
 
 /**
@@ -130,33 +140,52 @@ async function closeTasks(
 async function findOpenTasks(
     client: TodoistApi,
     ids: string[],
-): Promise<Map<string, PromiseSettledResult<boolean>>> {
+): Promise<Map<string, PromiseSettledResult<TaskState>>> {
     try {
         const { results } = await executeWithRetry(() =>
             client.getTasks({ ids, limit: ids.length }),
         )
-        const open = new Set(results.map((task) => task.id))
-        return new Map(ids.map((id) => [id, { status: 'fulfilled', value: open.has(id) }]))
+        const found = new Map(results.map((task) => [task.id, stateOf(task)]))
+        return new Map(
+            ids.map((id) => [id, { status: 'fulfilled', value: found.get(id) ?? 'missing' }]),
+        )
     } catch (error) {
         if (extractHttpStatusCode(error) !== 400) {
             throw error
         }
+        console.error(
+            `${ToolNames.COMPLETE_TASKS}: batch read refused, reading tasks one at a time`,
+            {
+                tasks: ids.length,
+                error: formatBatchItemError(error),
+            },
+        )
     }
 
     const reads = await Promise.allSettled(
         ids.map((id) => executeWithRetry(() => client.getTask(id))),
     )
     return new Map(
-        ids.map((id, index): [string, PromiseSettledResult<boolean>] => {
+        ids.map((id, index): [string, PromiseSettledResult<TaskState>] => {
             const read = reads[index]
             return [
                 id,
                 read?.status === 'fulfilled'
-                    ? { status: 'fulfilled', value: !read.value.checked }
+                    ? { status: 'fulfilled', value: stateOf(read.value) }
                     : { status: 'rejected', reason: read?.reason },
             ]
         }),
     )
+}
+
+/**
+ * Where a task stands before closing it. `missing` is a task the batch read left
+ * out: either unknown, or completed, since that listing only has open tasks.
+ */
+type TaskState = 'open' | 'completed' | 'missing'
+
+function stateOf(task: Task): TaskState {
+    return task.checked ? 'completed' : 'open'
 }
 
 function generateTextContent({

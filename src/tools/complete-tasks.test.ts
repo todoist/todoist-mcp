@@ -1,6 +1,13 @@
 import type { TodoistApi } from '@todoist/sdk'
-import { type Mocked, vi } from 'vitest'
-import { answerTaskCloses, createApiError, createMockTask } from '../utils/test-helpers.js'
+import { type Mocked, onTestFinished, vi } from 'vitest'
+import { resetLimitersForTesting } from '../utils/concurrency.js'
+import { ConcurrencyLimits } from '../utils/constants.js'
+import {
+    allApplied,
+    answerTaskCloses,
+    createApiError,
+    createMockTask,
+} from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { completeTasks } from './complete-tasks.js'
 
@@ -20,6 +27,8 @@ describe(`${COMPLETE_TASKS} tool`, () => {
     beforeEach(() => {
         vi.clearAllMocks()
         closeTask.mockReset()
+        mockTodoistApi.getTask.mockReset()
+        resetLimitersForTesting()
         answerTaskCloses(mockTodoistApi, closeTask)
     })
 
@@ -113,15 +122,16 @@ describe(`${COMPLETE_TASKS} tool`, () => {
         })
 
         it('should handle all tasks failing', async () => {
-            const apiError = new Error('API Error: Network timeout')
-            closeTask.mockRejectedValue(apiError)
+            // A network failure takes down the request itself, so every task shares it.
+            mockTodoistApi.sync.mockRejectedValue(new Error('API Error: Network timeout'))
 
             const result = await completeTasks.execute(
                 { ids: ['task-1', 'task-2'] },
                 mockTodoistApi,
             )
 
-            expect(closeTask).toHaveBeenCalledTimes(2)
+            expect(mockTodoistApi.sync).toHaveBeenCalledOnce()
+            expect(closeTask).not.toHaveBeenCalled()
             expect(result.textContent).toMatchSnapshot()
         })
 
@@ -131,7 +141,9 @@ describe(`${COMPLETE_TASKS} tool`, () => {
                 .mockRejectedValueOnce(new Error('Task already completed'))
                 .mockRejectedValueOnce(new Error('Task not found'))
                 .mockResolvedValueOnce(true) // task-3 succeeds
-                .mockRejectedValueOnce(new Error('Permission denied'))
+                .mockRejectedValueOnce(
+                    createApiError({ status: 403, error: 'Permission denied', tag: 'FORBIDDEN' }),
+                )
                 .mockResolvedValueOnce(true) // task-5 succeeds
 
             const result = await completeTasks.execute(
@@ -149,7 +161,9 @@ describe(`${COMPLETE_TASKS} tool`, () => {
             closeTask
                 .mockRejectedValueOnce(new Error('Task not found'))
                 .mockRejectedValueOnce(new Error('Task already completed'))
-                .mockRejectedValueOnce(new Error('Permission denied'))
+                .mockRejectedValueOnce(
+                    createApiError({ status: 403, error: 'Permission denied', tag: 'FORBIDDEN' }),
+                )
                 .mockRejectedValueOnce(new Error('Rate limit exceeded'))
 
             const result = await completeTasks.execute(
@@ -308,8 +322,29 @@ describe(`${COMPLETE_TASKS} tool`, () => {
             expect(result.structuredContent.failures).toEqual([
                 {
                     item: 'wrong-id',
-                    error: 'Task not found, or already completed. Check the ID with find-tasks.',
+                    error: 'Task not found, or already completed. Look for it with find-tasks, or find-completed-tasks if it may be done.',
                 },
+            ])
+        })
+
+        it('does not close a completed task the batch read returns', async () => {
+            closeTask.mockResolvedValue(true)
+            mockTodoistApi.getTasks.mockResolvedValueOnce({
+                results: [
+                    createMockTask({ id: 'task-1' }),
+                    createMockTask({ id: 'done-1', checked: true }),
+                ],
+                nextCursor: null,
+            })
+
+            const result = await completeTasks.execute(
+                { ids: ['task-1', 'done-1'] },
+                mockTodoistApi,
+            )
+
+            expect(sentCommands().map((command) => command.args)).toEqual([{ id: 'task-1' }])
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'done-1', error: 'Task is already completed.' },
             ])
         })
 
@@ -337,7 +372,9 @@ describe(`${COMPLETE_TASKS} tool`, () => {
             expect(result.structuredContent.failureCount).toBe(2)
         })
 
-        it('still closes the other tasks when one ID is malformed', async () => {
+        it('still closes the other tasks when one ID is malformed, and logs the slower path', async () => {
+            const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+            onTestFinished(() => consoleErrorSpy.mockRestore())
             // The API refuses a whole getTasks({ ids }) over one malformed ID, as the
             // real API showed, so the tasks are then read one at a time.
             closeTask.mockResolvedValue(true)
@@ -368,6 +405,13 @@ describe(`${COMPLETE_TASKS} tool`, () => {
                     error: 'Invalid argument value (HTTP 400, tag INVALID_ARGUMENT_VALUE)',
                 },
             ])
+            expect(consoleErrorSpy).toHaveBeenCalledWith(
+                'complete-tasks: batch read refused, reading tasks one at a time',
+                {
+                    tasks: 3,
+                    error: 'Invalid argument value (HTTP 400, tag INVALID_ARGUMENT_VALUE)',
+                },
+            )
         })
 
         it('does not close a task again when it is already completed', async () => {
@@ -386,10 +430,7 @@ describe(`${COMPLETE_TASKS} tool`, () => {
 
             expect(sentCommands().map((command) => command.args)).toEqual([{ id: 'task-1' }])
             expect(result.structuredContent.failures).toEqual([
-                {
-                    item: 'done-1',
-                    error: 'Task not found, or already completed. Check the ID with find-tasks.',
-                },
+                { item: 'done-1', error: 'Task is already completed.' },
             ])
         })
 
@@ -408,6 +449,27 @@ describe(`${COMPLETE_TASKS} tool`, () => {
                 'task-1',
                 'task-2',
             ])
+        })
+
+        it('keeps parallel calls for one account within the write limit', async () => {
+            let active = 0
+            let peak = 0
+            mockTodoistApi.sync.mockImplementation(async ({ commands = [] }) => {
+                active += 1
+                peak = Math.max(peak, active)
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                active -= 1
+                return { syncStatus: allApplied(commands), tempIdMapping: {} }
+            })
+
+            await Promise.all(
+                Array.from({ length: 6 }, (_, index) =>
+                    completeTasks.execute({ ids: [`task-${index}`] }, mockTodoistApi),
+                ),
+            )
+
+            expect(mockTodoistApi.sync).toHaveBeenCalledTimes(6)
+            expect(peak).toBe(ConcurrencyLimits.WRITES)
         })
 
         it.each([502, 503, 504])(
