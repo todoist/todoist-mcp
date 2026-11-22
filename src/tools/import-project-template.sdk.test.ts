@@ -6,7 +6,7 @@ describe('CSV template import through the real SDK', () => {
     it('sends CSV bytes as a multipart file rather than opening them as a path', async () => {
         const csv =
             '\uFEFFTYPE,CONTENT,DESCRIPTION,INDENT\r\ntask,"État, prêt","Ligne 1\nLigne 2",1\r\n'
-        let sentFile: { url: string; name: string; content: string } | undefined
+        let sentFile: { request: string; name: string; content: string } | undefined
         const client = new TodoistApi('unused-test-token', {
             baseUrl: 'https://todoist.invalid',
             customFetch: async (url, init) => {
@@ -14,7 +14,7 @@ describe('CSV template import through the real SDK', () => {
                 const file = form.get('file')
                 if (!(file instanceof File)) throw new Error('CSV file part is missing')
                 sentFile = {
-                    url: String(url),
+                    request: `${init?.method} ${new URL(url).pathname}`,
                     name: file.name,
                     content: Buffer.from(await file.arrayBuffer()).toString('utf8'),
                 }
@@ -35,7 +35,7 @@ describe('CSV template import through the real SDK', () => {
         )
 
         expect(sentFile).toEqual({
-            url: expect.stringMatching(/\/projects\/test-project\/import$/),
+            request: 'POST /api/v1/projects/test-project/import',
             name: 'template.csv',
             content:
                 '\uFEFFTYPE,CONTENT,DESCRIPTION,INDENT\r\ntask,"État, prêt","Ligne 1\nLigne 2",1\r\n',
