@@ -283,8 +283,8 @@ const DUE_STRING_GUIDANCE =
  * e.g. a full project surfaces as HTTP 403, and without this mapping the
  * error would be indistinguishable from an auth/permission failure.
  *
- * A hint is also appended to each per-item batch failure carrying its tag, so it
- * is repeated once per failed item: keep them short.
+ * Batch tools give the hint for a tag once per response, on the first item that
+ * failed with it; see `describeBatchItemError`.
  */
 const TODOIST_ERROR_TAG_HINTS: Record<string, string> = {
     // Seen for a deadline sent by a free-plan user (task creates and updates), for
@@ -310,7 +310,20 @@ const TODOIST_ERROR_TAG_HINTS: Record<string, string> = {
         'Use a public gallery template instead, or ask the owner to export it with export-project-template and share the CSV.',
 }
 
-function findKnownTagHintInText(...texts: Array<string | undefined>): string | undefined {
+/**
+ * Wording for a tag when it is reported against one item of a batch, where the
+ * shared hint would give advice no batch tool can act on. No batch tool reads
+ * the activity log, so the plan hint leaves out its date-range advice.
+ */
+const BATCH_ITEM_TAG_HINTS: Record<string, string> = {
+    PREMIUM_ONLY:
+        "The user's Todoist plan does not include a feature this item used. " +
+        'It is not an authentication or permission problem, and retrying the same item will not help. ' +
+        'On a task it is most often a deadline on a free plan: retry without `deadlineDate`. ' +
+        'Tell the user what was left out and that it needs a plan upgrade.',
+}
+
+function findKnownTagInText(...texts: Array<string | undefined>): string | undefined {
     for (const text of texts) {
         if (!text) {
             continue
@@ -321,25 +334,29 @@ function findKnownTagHintInText(...texts: Array<string | undefined>): string | u
             normalized.includes(knownTag),
         )
         if (tag) {
-            return TODOIST_ERROR_TAG_HINTS[tag]
+            return tag
         }
     }
 
     return undefined
 }
 
-function getKnownErrorHint(error: ApiErrorInfo): string | undefined {
-    if (error.tag) {
-        const hint = TODOIST_ERROR_TAG_HINTS[error.tag.toUpperCase()]
-        if (hint) {
-            return hint
-        }
+/** The error's tag, when it is one `TODOIST_ERROR_TAG_HINTS` explains. */
+function findKnownTag(error: ApiErrorInfo): string | undefined {
+    const tag = error.tag?.toUpperCase()
+    if (tag && TODOIST_ERROR_TAG_HINTS[tag]) {
+        return tag
     }
 
     // Wrapper errors (e.g. batch tools embedding per-item failures into a new
     // Error) lose the structured fields; recover known tags from raw text
     // before sanitized display text can truncate the tag.
-    return findKnownTagHintInText(...(error.rawText ?? []), error.message, error.details)
+    return findKnownTagInText(...(error.rawText ?? []), error.message, error.details)
+}
+
+function getKnownErrorHint(error: ApiErrorInfo): string | undefined {
+    const tag = findKnownTag(error)
+    return tag ? TODOIST_ERROR_TAG_HINTS[tag] : undefined
 }
 
 function getNextStepHint(error: ApiErrorInfo): string {
@@ -560,15 +577,37 @@ export class ProjectAccessError extends Error {
  * (status, code, tag) so failures like MAX_ITEMS_LIMIT_REACHED stay
  * recognizable after aggregation, and explains a tag that has a hint in
  * `TODOIST_ERROR_TAG_HINTS`.
+ *
+ * A tool that reports many items in one response should give each tag's hint
+ * once: `partitionSettled` does, through {@link describeBatchItemError}.
  */
 export function formatBatchItemError(error: unknown): string {
+    const { summary, hint } = describeBatchItemError(error)
+    return hint ? `${summary}. ${hint.text}` : summary
+}
+
+/** One item's failure, with the explanation of its error tag kept apart. */
+type BatchItemErrorDescription = {
+    /** The error with its API signals: `Message (HTTP 403, tag PREMIUM_ONLY)`. */
+    summary: string
+    /** What a known tag means and how to recover, when the error carries one. */
+    hint?: { tag: string; text: string }
+}
+
+/**
+ * The parts of {@link formatBatchItemError}, for callers that report several
+ * items at once. These tags reject whole batches (a full project, a free plan),
+ * so repeating the hint on every item would return the same paragraph up to a
+ * hundred times.
+ */
+export function describeBatchItemError(error: unknown): BatchItemErrorDescription {
     if (error instanceof DueStringParseError || error instanceof ProjectAccessError) {
-        return error.message
+        return { summary: error.message }
     }
 
     const parsedApiError = extractApiErrorInfo(error)
     if (!parsedApiError) {
-        return formatGenericError(error)
+        return { summary: formatGenericError(error) }
     }
 
     const context = buildErrorContext(parsedApiError)
@@ -579,10 +618,11 @@ export function formatBatchItemError(error: unknown): string {
             : 'Todoist API request failed'
 
     const summary = context.length > 0 ? `${message} (${context.join(', ')})` : message
-    // A batch tool returns its failures instead of throwing, so this line is the
+    // A batch tool returns its failures instead of throwing, so the failure is the
     // only place the model can learn what a known tag means.
-    const hint = getKnownErrorHint(parsedApiError)
-    return hint ? `${summary}. ${hint}` : summary
+    const tag = findKnownTag(parsedApiError)
+    const text = tag ? (BATCH_ITEM_TAG_HINTS[tag] ?? TODOIST_ERROR_TAG_HINTS[tag]) : undefined
+    return tag && text ? { summary, hint: { tag, text } } : { summary }
 }
 
 /**

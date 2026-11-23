@@ -723,29 +723,35 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
-            expect(result.structuredContent.failures[0]).toEqual(
-                expect.objectContaining({
-                    item: 'One too many',
-                    error: 'Maximum number of items exceeded (HTTP 403, code 49, tag MAX_ITEMS_LIMIT_REACHED). This project has reached the maximum number of active tasks per project (subtasks count toward it; completed tasks do not). The cap is the same on every Todoist plan — upgrading will not raise it — and it is not an authentication or permission problem. Complete, delete, or move existing tasks out of the project, or add the task to a different project, then retry.',
-                }),
+            const failure = result.structuredContent.failures[0]
+            expect(failure?.item).toBe('One too many')
+            expect(failure?.error).toContain(
+                'Maximum number of items exceeded (HTTP 403, code 49, tag MAX_ITEMS_LIMIT_REACHED)',
             )
+            expect(failure?.error).toContain('add the task to a different project')
         })
 
-        it('tells a free-plan user to retry without the deadline', async () => {
+        it('tells a free-plan user once to retry without the deadline', async () => {
             const createdTask = createMockTask({ id: '8485093754', content: 'No deadline' })
-            createTask.mockResolvedValueOnce(createdTask).mockRejectedValueOnce(
+            const deadlineRejected = () =>
                 createApiError({
                     status: 403,
                     error: 'Premium only feature',
                     tag: 'PREMIUM_ONLY',
-                }),
-            )
+                })
+            createTask
+                .mockResolvedValueOnce(createdTask)
+                .mockRejectedValueOnce(deadlineRejected())
+                .mockRejectedValueOnce(deadlineRejected())
+                .mockRejectedValueOnce(deadlineRejected())
 
             const result = await addTasks.execute(
                 {
                     tasks: [
                         { content: 'No deadline' },
                         { content: 'File taxes', deadlineDate: '2026-12-31' },
+                        { content: 'Renew passport', deadlineDate: '2027-01-15' },
+                        { content: 'Book flights', deadlineDate: '2027-02-01' },
                     ],
                 },
                 mockTodoistApi,
@@ -754,10 +760,18 @@ describe(`${ADD_TASKS} tool`, () => {
             expect(result.structuredContent.tasks).toEqual([
                 expect.objectContaining({ id: '8485093754' }),
             ])
-            expect(result.structuredContent.failures).toEqual([
+            const [first, ...repeats] = result.structuredContent.failures
+            expect(first?.item).toBe('File taxes')
+            expect(first?.error).toContain('retry without `deadlineDate`')
+            // The explanation is given once, however many tasks hit the same restriction.
+            expect(repeats).toEqual([
                 {
-                    item: 'File taxes',
-                    error: "Premium only feature (HTTP 403, code 0, tag PREMIUM_ONLY). The user's Todoist plan does not include a feature this request used. It is not an authentication or permission problem, and retrying the same request will not help. Most often it is a deadline on a free plan: retry without `deadlineDate`. Activity history only goes back as far as the plan allows: retry with a more recent date range. Tell the user what was left out and that it needs a plan upgrade.",
+                    item: 'Renew passport',
+                    error: 'Premium only feature (HTTP 403, code 0, tag PREMIUM_ONLY). Same cause and fix as the first PREMIUM_ONLY failure in this list.',
+                },
+                {
+                    item: 'Book flights',
+                    error: 'Premium only feature (HTTP 403, code 0, tag PREMIUM_ONLY). Same cause and fix as the first PREMIUM_ONLY failure in this list.',
                 },
             ])
             expect(result.textContent).toContain('retry without `deadlineDate`')

@@ -1,5 +1,6 @@
 import { logBatchFailures, partitionSettled } from './batch-failures.js'
 import { LogLimits } from './constants.js'
+import { createApiError } from './test-helpers.js'
 
 describe('logBatchFailures', () => {
     let consoleErrorSpy: ReturnType<typeof vi.spyOn>
@@ -129,6 +130,83 @@ describe('partitionSettled', () => {
         expect(failures.map((failure) => failure.item)).toEqual([
             'Reminder 1 on task task-a',
             'Reminder 2 on task task-b',
+        ])
+    })
+
+    it('explains a known error tag once, and points later failures back to it', () => {
+        const fullProject = () =>
+            createApiError({
+                status: 403,
+                error: 'Maximum number of items exceeded',
+                tag: 'MAX_ITEMS_LIMIT_REACHED',
+            })
+        const settled: PromiseSettledResult<string>[] = [
+            { status: 'rejected', reason: fullProject() },
+            { status: 'fulfilled', value: 'task-2' },
+            { status: 'rejected', reason: fullProject() },
+            { status: 'rejected', reason: new Error('Section "Later" not found') },
+            { status: 'rejected', reason: fullProject() },
+        ]
+
+        const { failures } = partitionSettled(
+            ['First', 'Second', 'Third', 'Fourth', 'Fifth'],
+            settled,
+            (name) => name,
+        )
+
+        expect(failures).toEqual([
+            {
+                item: 'First',
+                error: 'Maximum number of items exceeded (HTTP 403, tag MAX_ITEMS_LIMIT_REACHED). This project has reached the maximum number of active tasks per project (subtasks count toward it; completed tasks do not). The cap is the same on every Todoist plan — upgrading will not raise it — and it is not an authentication or permission problem. Complete, delete, or move existing tasks out of the project, or add the task to a different project, then retry.',
+            },
+            {
+                item: 'Third',
+                error: 'Maximum number of items exceeded (HTTP 403, tag MAX_ITEMS_LIMIT_REACHED). Same cause and fix as the first MAX_ITEMS_LIMIT_REACHED failure in this list.',
+            },
+            { item: 'Fourth', error: 'Section "Later" not found' },
+            {
+                item: 'Fifth',
+                error: 'Maximum number of items exceeded (HTTP 403, tag MAX_ITEMS_LIMIT_REACHED). Same cause and fix as the first MAX_ITEMS_LIMIT_REACHED failure in this list.',
+            },
+        ])
+    })
+
+    it('explains each known tag in a batch once', () => {
+        const { failures } = partitionSettled(
+            ['Full project', 'Deadline', 'Another deadline'],
+            [
+                {
+                    status: 'rejected',
+                    reason: createApiError({
+                        status: 403,
+                        error: 'Maximum number of items exceeded',
+                        tag: 'MAX_ITEMS_LIMIT_REACHED',
+                    }),
+                },
+                {
+                    status: 'rejected',
+                    reason: createApiError({
+                        status: 403,
+                        error: 'Premium only feature',
+                        tag: 'PREMIUM_ONLY',
+                    }),
+                },
+                {
+                    status: 'rejected',
+                    reason: createApiError({
+                        status: 403,
+                        error: 'Premium only feature',
+                        tag: 'PREMIUM_ONLY',
+                    }),
+                },
+            ],
+            (name) => name,
+        )
+
+        expect(failures.map((failure) => failure.error)).toEqual([
+            expect.stringContaining('maximum number of active tasks per project'),
+            expect.stringContaining('retry without `deadlineDate`'),
+            'Premium only feature (HTTP 403, tag PREMIUM_ONLY). Same cause and fix as the first PREMIUM_ONLY failure in this list.',
         ])
     })
 })

@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import { formatBatchItemError } from '../tool-execution-error.js'
+import { describeBatchItemError } from '../tool-execution-error.js'
 import { LogLimits } from './constants.js'
 import type { FailureSchema } from './output-schemas.js'
 import type { ToolName } from './tool-names.js'
@@ -16,8 +16,12 @@ type SettledBatch<Item, Value> = {
 /**
  * Splits a batch's settled results into the items that worked and a failure for
  * each one that didn't. `settled` lines up with `items`, as `Promise.allSettled`
- * over them returns it. Each failure names its item with `describe` and explains
- * it with `formatBatchItemError`, which keeps the API's status and error tag.
+ * over them returns it. Each failure names its item with `describe` and keeps the
+ * API's status and error tag.
+ *
+ * A known error tag is explained on the first item that failed with it. Later
+ * items with the same tag point back to that one, since such errors tend to
+ * reject a whole batch and the explanation would otherwise repeat on every item.
  */
 export function partitionSettled<Item, Value>(
     items: ReadonlyArray<Item>,
@@ -26,17 +30,24 @@ export function partitionSettled<Item, Value>(
 ): SettledBatch<Item, Value> {
     const succeeded: SettledBatch<Item, Value>['succeeded'] = []
     const failures: BatchFailure[] = []
+    const explainedTags = new Set<string>()
 
     items.forEach((item, index) => {
         const result = settled[index]
         if (result?.status === 'fulfilled') {
             succeeded.push({ item, index, value: result.value })
-        } else {
-            failures.push({
-                item: describe(item, index),
-                error: formatBatchItemError(result?.reason),
-            })
+            return
         }
+
+        const { summary, hint } = describeBatchItemError(result?.reason)
+        let error = summary
+        if (hint) {
+            error = explainedTags.has(hint.tag)
+                ? `${summary}. Same cause and fix as the first ${hint.tag} failure in this list.`
+                : `${summary}. ${hint.text}`
+            explainedTags.add(hint.tag)
+        }
+        failures.push({ item: describe(item, index), error })
     })
 
     return { succeeded, failures }
