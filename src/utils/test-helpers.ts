@@ -424,6 +424,24 @@ export function createMockApiResponse<T>(
 }
 
 /**
+ * Answers a paginated list request the way the Todoist API does: the next cursor names
+ * the last item returned, any page size works, and nothing comes back after an item
+ * that is no longer in the list. It reads `items` on every call, so a test can change
+ * the list between calls.
+ */
+export function paginateLikeApi<T extends { id: string }>(items: T[]) {
+    return async (args?: { cursor?: string | null; limit?: number }) => {
+        const cursor = args?.cursor ?? null
+        const start = cursor === null ? 0 : items.findIndex((item) => item.id === cursor) + 1
+        const results =
+            cursor !== null && start === 0 ? [] : items.slice(start, start + (args?.limit ?? 50))
+        const last = results.at(-1)
+        const hasMore = start + results.length < items.length
+        return { results, nextCursor: hasMore && last ? last.id : null }
+    }
+}
+
+/**
  * Creates a simplified mapped task (matches mapTask output) for filter-based query tests.
  */
 export function createMappedTask(overrides: Partial<MappedTask> = {}): MappedTask {

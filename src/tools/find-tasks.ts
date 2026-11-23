@@ -19,7 +19,11 @@ import {
 } from '../tool-helpers.js'
 import { ApiLimits } from '../utils/constants.js'
 import { filterResolver } from '../utils/filter-resolver.js'
-import { collectFilteredPage, readFilteredPageCursor } from '../utils/filtered-pages.js'
+import {
+    collectFilteredPage,
+    INVALID_CURSOR_MESSAGE,
+    readFilteredPageCursor,
+} from '../utils/filtered-pages.js'
 import {
     findLabelName,
     formatLabelsForDisplay,
@@ -324,11 +328,7 @@ type ContainerCursorState = z.infer<typeof ContainerCursorStateSchema>
 function readApiLabel(state: unknown): string | undefined {
     if (state === undefined) return undefined
     const parsed = ContainerCursorStateSchema.safeParse(state)
-    if (!parsed.success) {
-        throw new Error(
-            'Invalid cursor. Pass the nextCursor from the previous call unchanged, with the same parameters.',
-        )
-    }
+    if (!parsed.success) throw new Error(INVALID_CURSOR_MESSAGE)
     return parsed.data.apiLabel
 }
 

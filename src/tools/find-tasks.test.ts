@@ -7,6 +7,7 @@ import {
     createMockLabel,
     createMockTask,
     createMockUser,
+    paginateLikeApi,
     TEST_ERRORS,
     TEST_IDS,
     TODAY,
@@ -727,17 +728,7 @@ describe(`${FIND_TASKS} tool`, () => {
                 createMockTask({ id: 'theirs', responsibleUid: 'someone-else' }),
                 ...['1', '2', '3', '4'].map((id) => createMockTask({ id, responsibleUid: null })),
             ]
-            // Like the API: the cursor names the last task returned, and nothing comes back
-            // once that task is gone.
-            mockTodoistApi.getTasks.mockImplementation(async (args) => {
-                const cursor = args?.cursor ?? null
-                const start =
-                    cursor === null ? 0 : projectTasks.findIndex((task) => task.id === cursor) + 1
-                if (cursor !== null && start === 0) return { results: [], nextCursor: null }
-                const results = projectTasks.slice(start, start + (args?.limit ?? 50))
-                const hasMore = start + results.length < projectTasks.length
-                return { results, nextCursor: hasMore ? (results.at(-1)?.id ?? null) : null }
-            })
+            mockTodoistApi.getTasks.mockImplementation(paginateLikeApi(projectTasks))
             const params = { projectId: TEST_IDS.PROJECT_TEST, limit: 2 }
             const taskIds = (result: Awaited<ReturnType<typeof findTasks.execute>>) =>
                 (result.structuredContent.tasks as MappedTask[]).map((task) => task.id)

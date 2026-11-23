@@ -9,7 +9,7 @@ const MAX_REQUESTS = 5
 /** Marks a cursor this module issued. */
 const RESUME_CURSOR_PREFIX = 'resume:'
 
-const INVALID_CURSOR_MESSAGE =
+export const INVALID_CURSOR_MESSAGE =
     'Invalid cursor. Pass the nextCursor from the previous call unchanged, with the same parameters.'
 
 const FilteredPagePositionSchema = z.object({

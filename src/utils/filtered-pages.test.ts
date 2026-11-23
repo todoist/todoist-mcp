@@ -1,4 +1,5 @@
 import { collectFilteredPage, readFilteredPageCursor } from './filtered-pages.js'
+import { paginateLikeApi } from './test-helpers.js'
 
 type Item = { id: string; keep: boolean }
 
@@ -7,20 +8,8 @@ function itemsFrom(pattern: boolean[]): Item[] {
     return pattern.map((keep, index) => ({ id: String(index), keep }))
 }
 
-/**
- * A fake paginated endpoint that behaves like the Todoist API: the next cursor names
- * the last item returned, works with any page size, and finds nothing after an item
- * that is no longer in the list. It reads `items` on every call, so a test can change
- * the list between calls.
- */
 function fakeApi(items: Item[]) {
-    return vi.fn(async ({ cursor, limit }: { cursor: string | null; limit: number }) => {
-        const start = cursor === null ? 0 : items.findIndex((item) => item.id === cursor) + 1
-        const results = start === 0 && cursor !== null ? [] : items.slice(start, start + limit)
-        const last = results.at(-1)
-        const hasMore = start + results.length < items.length
-        return { results, nextCursor: hasMore && last ? last.id : null }
-    })
+    return vi.fn(paginateLikeApi(items))
 }
 
 /** Removes `removed` from `items` in place, as completing those tasks would. */
