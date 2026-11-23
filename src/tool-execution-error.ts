@@ -282,6 +282,9 @@ const DUE_STRING_GUIDANCE =
  * `error_tag`. These take precedence over the generic status-code hints:
  * e.g. a full project surfaces as HTTP 403, and without this mapping the
  * error would be indistinguishable from an auth/permission failure.
+ *
+ * A hint is also appended to each per-item batch failure carrying its tag, so it
+ * is repeated once per failed item: keep them short.
  */
 const TODOIST_ERROR_TAG_HINTS: Record<string, string> = {
     // Seen for a deadline sent by a free-plan user (task creates and updates), for
@@ -555,7 +558,8 @@ export class ProjectAccessError extends Error {
  * tools that report per-item failures. Unlike `error.message` (which for SDK
  * errors is just "HTTP 403: Forbidden"), this preserves the API error signals
  * (status, code, tag) so failures like MAX_ITEMS_LIMIT_REACHED stay
- * recognizable after aggregation.
+ * recognizable after aggregation, and explains a tag that has a hint in
+ * `TODOIST_ERROR_TAG_HINTS`.
  */
 export function formatBatchItemError(error: unknown): string {
     if (error instanceof DueStringParseError || error instanceof ProjectAccessError) {
@@ -574,7 +578,11 @@ export function formatBatchItemError(error: unknown): string {
             ? parsedApiError.message
             : 'Todoist API request failed'
 
-    return context.length > 0 ? `${message} (${context.join(', ')})` : message
+    const summary = context.length > 0 ? `${message} (${context.join(', ')})` : message
+    // A batch tool returns its failures instead of throwing, so this line is the
+    // only place the model can learn what a known tag means.
+    const hint = getKnownErrorHint(parsedApiError)
+    return hint ? `${summary}. ${hint}` : summary
 }
 
 /**

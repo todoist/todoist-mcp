@@ -726,9 +726,41 @@ describe(`${ADD_TASKS} tool`, () => {
             expect(result.structuredContent.failures[0]).toEqual(
                 expect.objectContaining({
                     item: 'One too many',
-                    error: 'Maximum number of items exceeded (HTTP 403, code 49, tag MAX_ITEMS_LIMIT_REACHED)',
+                    error: 'Maximum number of items exceeded (HTTP 403, code 49, tag MAX_ITEMS_LIMIT_REACHED). This project has reached the maximum number of active tasks per project (subtasks count toward it; completed tasks do not). The cap is the same on every Todoist plan — upgrading will not raise it — and it is not an authentication or permission problem. Complete, delete, or move existing tasks out of the project, or add the task to a different project, then retry.',
                 }),
             )
+        })
+
+        it('tells a free-plan user to retry without the deadline', async () => {
+            const createdTask = createMockTask({ id: '8485093754', content: 'No deadline' })
+            createTask.mockResolvedValueOnce(createdTask).mockRejectedValueOnce(
+                createApiError({
+                    status: 403,
+                    error: 'Premium only feature',
+                    tag: 'PREMIUM_ONLY',
+                }),
+            )
+
+            const result = await addTasks.execute(
+                {
+                    tasks: [
+                        { content: 'No deadline' },
+                        { content: 'File taxes', deadlineDate: '2026-12-31' },
+                    ],
+                },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.tasks).toEqual([
+                expect.objectContaining({ id: '8485093754' }),
+            ])
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'File taxes',
+                    error: "Premium only feature (HTTP 403, code 0, tag PREMIUM_ONLY). The user's Todoist plan does not include a feature this request used. It is not an authentication or permission problem, and retrying the same request will not help. Most often it is a deadline on a free plan: retry without `deadlineDate`. Activity history only goes back as far as the plan allows: retry with a more recent date range. Tell the user what was left out and that it needs a plan upgrade.",
+                },
+            ])
+            expect(result.textContent).toContain('retry without `deadlineDate`')
         })
 
         it('returns dueString retry guidance for a partial invalid-date failure', async () => {
@@ -1536,8 +1568,12 @@ describe(`${ADD_TASKS} tool`, () => {
                 mockTodoistApi,
             )
 
+            // The tag's general explanation, not the "`dueString` could not be parsed" verdict.
             expect(result.structuredContent.failures).toEqual([
-                { item: 'Water plants', error: 'Date is invalid (HTTP 400, tag INVALID_DATE)' },
+                {
+                    item: 'Water plants',
+                    error: 'Date is invalid (HTTP 400, tag INVALID_DATE). Todoist could not parse a date in this request. A due string must name one specific date or recurrence, such as "tomorrow", "Friday at 3pm", "2026-12-01" or "every weekday"; a period such as "this week" is not a date. Where a field asks for YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS, send exactly that, not words such as "today". Change only the date and retry.',
+                },
             ])
         })
 
