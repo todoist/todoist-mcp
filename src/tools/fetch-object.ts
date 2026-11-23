@@ -79,7 +79,7 @@ const fetchObject = {
                         ? await resolveChildren(() => getProjectChildren(client, project))
                         : {}
                     return {
-                        textContent: `Found project: ${mappedProject.name} • id=${mappedProject.id} • color=${mappedProject.color} • viewStyle=${mappedProject.viewStyle}${formatChildrenSummary('subProjects', children)}`,
+                        textContent: `Found project: ${mappedProject.name} • id=${mappedProject.id} • color=${mappedProject.color}${mappedProject.icon ? ` • icon=${mappedProject.icon}` : ''} • viewStyle=${mappedProject.viewStyle}${formatChildrenSummary('subProjects', children)}`,
                         structuredContent: {
                             type,
                             id,

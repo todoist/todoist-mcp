@@ -36,6 +36,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import { instructions } from '../src/mcp-server.js'
 import { registeredTools } from '../src/tool-registry.js'
+import type { fetchObject } from '../src/tools/fetch-object.js'
 import type { findFolders } from '../src/tools/find-folders.js'
 import type { findProjects } from '../src/tools/find-projects.js'
 import type { listWorkspaces } from '../src/tools/list-workspaces.js'
@@ -66,6 +67,25 @@ const EVAL_FOLDERS = {
     folders: [{ id: EVAL_FOLDER_ID, name: 'Marketing', workspaceId: EVAL_WORKSPACE_ID }],
     totalCount: 1,
 } satisfies StructuredOutput<typeof findFolders>
+
+/** The project the icon scenario resets, as fetch-object reports it. */
+const EVAL_TRIPS_PROJECT = {
+    type: 'project',
+    id: '6XTrips001',
+    object: {
+        id: '6XTrips001',
+        name: 'Trips',
+        description: '',
+        color: 'sky_blue',
+        icon: 'airplane',
+        isFavorite: false,
+        isShared: false,
+        inboxProject: false,
+        viewStyle: 'list',
+        childOrder: 3,
+        isArchived: false,
+    },
+} satisfies StructuredOutput<typeof fetchObject>
 
 /** A list longer than add-tasks once took in one call, for the bulk-add scenario. */
 const BULK_TASK_NAMES = Array.from({ length: 40 }, (_, index) => `Migrate page ${index + 1}`)
@@ -359,11 +379,48 @@ const SCENARIOS: Scenario[] = [
         context: { [ToolNames.FIND_FOLDERS]: EVAL_FOLDERS },
         check: (input) => {
             const project = firstItem(input, 'projects')
-            return project?.id === '6XQ3Plan99' && project.folderId === EVAL_FOLDER_ID
+            // An icon sent alongside the move would overwrite the project's own.
+            return project?.id === '6XQ3Plan99' &&
+                project.folderId === EVAL_FOLDER_ID &&
+                !Object.hasOwn(project, 'icon')
                 ? null
-                : `not a move of 6XQ3Plan99 into ${EVAL_FOLDER_ID}: ${JSON.stringify(input)}`
+                : `not a move of 6XQ3Plan99 into ${EVAL_FOLDER_ID} alone: ${JSON.stringify(input)}`
         },
         guards: 'update-projects folderId: moving a workspace project into a folder',
+    },
+    {
+        id: 'reset-project-icon',
+        prompt: 'Put project 6XTrips001 ("Trips") back on its default icon.',
+        expect: [ToolNames.UPDATE_PROJECTS],
+        // Looking the project up first is reasonable; the stub shows its current icon.
+        context: { [ToolNames.FETCH_OBJECT]: EVAL_TRIPS_PROJECT },
+        check: (input) => {
+            const projects = Array.isArray(input.projects) ? input.projects : []
+            const [project] = projects
+            // Only id and icon: any other field is an edit nobody asked for.
+            return projects.length === 1 &&
+                project?.id === '6XTrips001' &&
+                project.icon === 'remove' &&
+                Object.keys(project).length === 2
+                ? null
+                : `not an icon-only reset of 6XTrips001: ${JSON.stringify(input)}`
+        },
+        guards: 'update-projects icon: "remove" restores the default icon (not null, "#" or omitted)',
+    },
+    {
+        id: 'create-project-with-emoji-icon',
+        prompt: 'Create a project called Groceries with 🍎 as its icon.',
+        expect: [ToolNames.ADD_PROJECTS],
+        check: (input) => {
+            const projects = Array.isArray(input.projects) ? input.projects : []
+            const [project] = projects
+            return projects.length === 1 &&
+                project?.name === 'Groceries' &&
+                project.icon === 'apple'
+                ? null
+                : `not Groceries with the apple icon: ${JSON.stringify(input)}`
+        },
+        guards: 'add-projects icon: mapping an emoji to the matching icon name, not into the name',
     },
     {
         id: 'delete-folder',

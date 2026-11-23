@@ -476,6 +476,7 @@ function mapProject(project: Project) {
         name: project.name,
         description: project.description,
         color: project.color as ColorKey,
+        icon: project.icon ?? undefined,
         isFavorite: project.isFavorite,
         isShared: project.isShared,
         parentId: isPersonalProject(project) ? (project.parentId ?? undefined) : undefined,

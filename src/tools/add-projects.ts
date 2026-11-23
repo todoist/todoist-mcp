@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import {
     createCommand,
     type Folder,
+    PROJECT_ICONS,
     PROJECT_VIEW_STYLES,
     type PersonalProject,
     type ProjectAddArgs,
@@ -48,6 +49,10 @@ const ProjectSchema = z.object({
         .optional()
         .describe('The description of the project. Supports Markdown.'),
     color: ColorSchema,
+    icon: z
+        .enum(PROJECT_ICONS)
+        .optional()
+        .describe('The project icon. Omit for the default # icon.'),
     workspace: z
         .string()
         .trim()

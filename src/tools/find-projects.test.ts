@@ -1,5 +1,6 @@
 import type { ColorKey, TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { z } from 'zod'
 import { ColorOutputSchema } from '../utils/colors.js'
 import { ProjectSchema } from '../utils/output-schemas.js'
 import {
@@ -122,6 +123,27 @@ describe(`${FIND_PROJECTS} tool`, () => {
                 limit: 10,
                 cursor: 'current-page-cursor',
             })
+        })
+
+        it("should return each project's icon, leaving it out for the default icon", async () => {
+            mockTodoistApi.getProjects.mockResolvedValue(
+                createMockApiResponse([
+                    createMockProject({ id: 'ideas', icon: 'lightbulb' }),
+                    // Todoist adds icons over time, so a name not offered yet still comes back.
+                    createMockProject({ id: 'later', icon: 'an_icon_added_later' }),
+                    createMockProject({ id: 'plain', icon: null }),
+                ]),
+            )
+
+            const result = await findProjects.execute({ limit: 50 }, mockTodoistApi)
+
+            const { projects } = result.structuredContent
+            expect(projects.map(({ id, icon }) => ({ id, icon }))).toEqual([
+                { id: 'ideas', icon: 'lightbulb' },
+                { id: 'later', icon: 'an_icon_added_later' },
+                { id: 'plain', icon: undefined },
+            ])
+            expect(() => z.array(ProjectSchema.strict()).parse(projects)).not.toThrow()
         })
     })
 

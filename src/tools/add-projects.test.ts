@@ -266,6 +266,30 @@ describe(`${ADD_PROJECTS} tool`, () => {
         })
     })
 
+    describe('icon handling', () => {
+        it('should create a project with an icon and return it', async () => {
+            mockTodoistApi.addProject.mockResolvedValue(
+                createMockProject({ id: 'project-home', name: 'Home', icon: 'house' }),
+            )
+
+            const parsed = z.object(addProjects.parameters).parse({
+                projects: [{ name: 'Home', icon: 'house' }],
+            })
+            const result = await addProjects.execute(parsed, mockTodoistApi)
+
+            expect(mockTodoistApi.addProject).toHaveBeenCalledWith({ name: 'Home', icon: 'house' })
+            expect(result.structuredContent.projects[0]?.icon).toBe('house')
+        })
+
+        it('should reject an icon name Todoist does not offer', () => {
+            const parsed = z.object(addProjects.parameters).safeParse({
+                projects: [{ name: 'Launch', icon: 'rocket' }],
+            })
+
+            expect(parsed.success).toBe(false)
+        })
+    })
+
     describe('creating multiple projects', () => {
         it('should create multiple projects and return mapped results', async () => {
             type Project = PersonalProject | WorkspaceProject
@@ -544,6 +568,7 @@ describe(`${ADD_PROJECTS} tool`, () => {
                 'name',
                 'description',
                 'color',
+                'icon',
                 'isFavorite',
                 'isShared',
                 'parentId',
@@ -911,7 +936,12 @@ describe(`${ADD_PROJECTS} tool`, () => {
             // Parsed as a client's call is, so a schema without folderId would strip it.
             const args = z.object(addProjects.parameters).parse({
                 projects: [
-                    { name: 'campaigns', folderId: TEST_IDS.FOLDER_1, color: 'red' },
+                    {
+                        name: 'campaigns',
+                        folderId: TEST_IDS.FOLDER_1,
+                        color: 'red',
+                        icon: 'bullseye',
+                    },
                     { name: 'events', folderId: TEST_IDS.FOLDER_1, workspace: 'Acme' },
                 ],
             })
@@ -928,6 +958,7 @@ describe(`${ADD_PROJECTS} tool`, () => {
                     args: {
                         name: 'campaigns',
                         color: 'red',
+                        icon: 'bullseye',
                         workspaceId: TEST_IDS.WORKSPACE_1,
                         folderId: TEST_IDS.FOLDER_1,
                     },

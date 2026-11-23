@@ -38,6 +38,7 @@ const ProjectSchema = z.object({
     name: z.string(),
     description: z.string().describe('Empty string when none.'),
     color: ColorOutputSchema,
+    icon: z.string().optional(),
     isFavorite: z.boolean(),
     isShared: z.boolean(),
     parentId: z.string().optional(),

@@ -249,6 +249,48 @@ describe(`${UPDATE_PROJECTS} tool`, () => {
         })
     })
 
+    describe('icons', () => {
+        it('should set a project icon', async () => {
+            mockTodoistApi.updateProject.mockResolvedValue(
+                createMockProject({ id: 'project-123', icon: 'airplane' }),
+            )
+
+            const args = z.object(updateProjects.parameters).parse({
+                projects: [{ id: 'project-123', icon: 'airplane' }],
+            })
+            const result = await updateProjects.execute(args, mockTodoistApi)
+
+            expect(mockTodoistApi.updateProject).toHaveBeenCalledExactlyOnceWith('project-123', {
+                icon: 'airplane',
+            })
+            expect(result.structuredContent.projects[0]?.icon).toBe('airplane')
+        })
+
+        it('should restore the default icon with "remove"', async () => {
+            mockTodoistApi.updateProject.mockResolvedValue(
+                createMockProject({ id: 'project-123', icon: null }),
+            )
+
+            const args = z.object(updateProjects.parameters).parse({
+                projects: [{ id: 'project-123', icon: 'remove' }],
+            })
+            const result = await updateProjects.execute(args, mockTodoistApi)
+
+            expect(mockTodoistApi.updateProject).toHaveBeenCalledExactlyOnceWith('project-123', {
+                icon: null,
+            })
+            expect(result.structuredContent.projects[0]?.icon).toBeUndefined()
+        })
+
+        it('should reject an icon name Todoist does not offer', () => {
+            const parsed = z.object(updateProjects.parameters).safeParse({
+                projects: [{ id: 'project-123', icon: 'rocket' }],
+            })
+
+            expect(parsed.success).toBe(false)
+        })
+    })
+
     describe('color handling', () => {
         it('should pass a valid color key through to the API', async () => {
             const mockApiResponse = createMockProject({
@@ -494,6 +536,7 @@ describe(`${UPDATE_PROJECTS} tool`, () => {
                 'name',
                 'description',
                 'color',
+                'icon',
                 'isFavorite',
                 'isShared',
                 'parentId',

@@ -153,6 +153,22 @@ describe(`${FETCH_OBJECT} tool`, () => {
             })
         })
 
+        it("should show the project's icon", async () => {
+            mockTodoistApi.getProject.mockResolvedValue(
+                createMockProject({ id: 'project123', name: 'Trips', icon: 'airplane' }),
+            )
+
+            const result = await fetchObject.execute(
+                { type: 'project', id: 'project123' },
+                mockTodoistApi,
+            )
+
+            expect(result.textContent).toContain('icon=airplane')
+            expect(result.structuredContent.object).toEqual(
+                expect.objectContaining({ id: 'project123', icon: 'airplane' }),
+            )
+        })
+
         it('should handle project not found', async () => {
             mockTodoistApi.getProject.mockRejectedValue(new Error('Project not found'))
 

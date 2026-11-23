@@ -37,3 +37,30 @@ describe('Moving a project between folders through the real SDK', () => {
         expect(result.structuredContent.failures).toEqual([])
     })
 })
+
+describe('Changing a project icon through the real SDK', () => {
+    it.each([
+        { icon: 'house', sent: 'house' },
+        // The endpoint reads a null icon as the default `#` icon.
+        { icon: 'remove', sent: null },
+    ] as const)('sends icon $sent for icon $icon', async ({ icon, sent }) => {
+        const bodies: unknown[] = []
+        const client = new TodoistApi('unused-test-token', {
+            baseUrl: 'https://todoist.invalid',
+            customFetch: async (url, init) => {
+                if (`${init?.method} ${new URL(url).pathname}` !== 'POST /api/v1/projects/p-1') {
+                    throw new Error(`Unexpected request: ${init?.method} ${url}`)
+                }
+                bodies.push(JSON.parse(String(init?.body)))
+                return toFetchResponse(
+                    toApiProject(createMockWorkspaceProject({ id: 'p-1', icon: sent })),
+                )
+            },
+        })
+
+        const result = await updateProjects.execute({ projects: [{ id: 'p-1', icon }] }, client)
+
+        expect(bodies).toEqual([{ icon: sent }])
+        expect(result.structuredContent.projects[0]?.icon).toBe(sent ?? undefined)
+    })
+})

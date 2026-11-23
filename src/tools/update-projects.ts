@@ -1,4 +1,9 @@
-import { PROJECT_VIEW_STYLES, type PersonalProject, type WorkspaceProject } from '@todoist/sdk'
+import {
+    PROJECT_ICONS,
+    PROJECT_VIEW_STYLES,
+    type PersonalProject,
+    type WorkspaceProject,
+} from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { mapProject } from '../tool-helpers.js'
@@ -31,6 +36,10 @@ const ProjectUpdateSchema = z.object({
         )
         .optional(),
     color: ColorSchema,
+    icon: z
+        .enum([...PROJECT_ICONS, 'remove'])
+        .optional()
+        .describe('The project icon, or "remove" to restore the default # icon.'),
     folderId: z
         .string()
         .min(1)
@@ -94,13 +103,15 @@ const updateProjects = {
                 // keeps it unchanged (NULL_KEEPS_UNCHANGED), so "" is its clear value
                 // and is forwarded as-is. A null `folder_id` clears it (NULL_CLEARS),
                 // moving the project to the top level of its workspace, so a
-                // `folderId` of "remove" is sent as null.
-                const { id, folderId, ...rest } = project
+                // `folderId` of "remove" is sent as null. A null `icon` restores the
+                // default icon, so "remove" is sent as null too.
+                const { id, folderId, icon, ...rest } = project
                 const updateArgs = {
                     ...rest,
                     ...(folderId !== undefined
                         ? { folderId: folderId === 'remove' ? null : folderId }
                         : {}),
+                    ...(icon !== undefined ? { icon: icon === 'remove' ? null : icon } : {}),
                 }
                 const updated = await executeWithRetry(() => client.updateProject(id, updateArgs))
                 return { kind: 'updated', project: updated }
