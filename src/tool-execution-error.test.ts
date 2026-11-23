@@ -220,8 +220,67 @@ describe('formatToolExecutionError', () => {
         })
     })
 
+    describe('plan-restricted features (PREMIUM_ONLY)', () => {
+        // The shape a rejected Sync command is settled with: the SDK's camelCase status.
+        const deadlineOnFreePlan = Object.assign(new Error('Premium only feature'), {
+            httpStatusCode: 403,
+            responseData: {
+                error: 'Premium only feature',
+                errorCode: 32,
+                errorTag: 'PREMIUM_ONLY',
+                httpCode: 403,
+                errorExtra: { explanation: 'Deadlines are a premium only feature' },
+            },
+        })
+
+        it('explains the plan restriction instead of the generic 403 access hint', () => {
+            const output = formatToolExecutionError(deadlineOnFreePlan)
+
+            expect(output).toContain(
+                'Todoist API request failed (HTTP 403, code 32, tag PREMIUM_ONLY).',
+            )
+            expect(output).toContain("Try next: The user's Todoist plan does not include")
+            expect(output).toContain('retry without `deadlineDate`')
+            expect(output).toContain('retry with a more recent date range')
+            expect(output).not.toContain('insufficient token scope')
+        })
+
+        it('carries the explanation into a per-item batch failure', () => {
+            expect(formatBatchItemError(deadlineOnFreePlan)).toBe(
+                "Premium only feature (HTTP 403, code 32, tag PREMIUM_ONLY). The user's Todoist plan does not include a feature this request used. It is not an authentication or permission problem, and retrying the same request will not help. Most often it is a deadline on a free plan: retry without `deadlineDate`. Activity history only goes back as far as the plan allows: retry with a more recent date range. Tell the user what was left out and that it needs a plan upgrade.",
+            )
+        })
+    })
+
+    describe('unparseable dates (INVALID_DATE)', () => {
+        const invalidDate = Object.assign(new Error('Date is invalid'), {
+            httpStatusCode: 400,
+            responseData: {
+                error: 'Date is invalid',
+                errorCode: 480,
+                errorTag: 'INVALID_DATE',
+                httpCode: 400,
+            },
+        })
+
+        it('says what a parseable date looks like instead of the generic 400 hint', () => {
+            const output = formatToolExecutionError(invalidDate)
+
+            expect(output).toContain('Try next: Todoist could not parse a date in this request.')
+            expect(output).toContain('a period such as "this week" is not a date')
+            expect(output).toContain('YYYY-MM-DD')
+            expect(output).not.toContain('Check parameter values and formats')
+        })
+
+        it('carries the explanation into a per-item batch failure', () => {
+            expect(formatBatchItemError(invalidDate)).toBe(
+                'Date is invalid (HTTP 400, code 480, tag INVALID_DATE). Todoist could not parse a date in this request. A due string must name one specific date or recurrence, such as "tomorrow", "Friday at 3pm", "2026-12-01" or "every weekday"; a period such as "this week" is not a date. Where a field asks for YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS, send exactly that, not words such as "today". Change only the date and retry.',
+            )
+        })
+    })
+
     describe('formatBatchItemError', () => {
-        it('preserves API error signals lost by error.message', () => {
+        it('preserves API error signals lost by error.message, and explains a known tag', () => {
             const error = Object.assign(new Error('HTTP 403: Forbidden'), {
                 httpStatusCode: 403,
                 responseData: {
@@ -233,7 +292,18 @@ describe('formatToolExecutionError', () => {
             })
 
             expect(formatBatchItemError(error)).toBe(
-                'Maximum number of items exceeded (HTTP 403, code 49, tag MAX_ITEMS_LIMIT_REACHED)',
+                'Maximum number of items exceeded (HTTP 403, code 49, tag MAX_ITEMS_LIMIT_REACHED). This project has reached the maximum number of active tasks per project (subtasks count toward it; completed tasks do not). The cap is the same on every Todoist plan — upgrading will not raise it — and it is not an authentication or permission problem. Complete, delete, or move existing tasks out of the project, or add the task to a different project, then retry.',
+            )
+        })
+
+        it('adds no explanation to an error without a known tag', () => {
+            const error = Object.assign(new Error('HTTP 404: Not Found'), {
+                httpStatusCode: 404,
+                responseData: { error: 'Task not found', error_tag: 'ITEM_NOT_FOUND' },
+            })
+
+            expect(formatBatchItemError(error)).toBe(
+                'Task not found (HTTP 404, tag ITEM_NOT_FOUND)',
             )
         })
 
@@ -293,7 +363,7 @@ describe('formatToolExecutionError', () => {
                     dueString: 'blursday',
                 }),
             ).toBe(
-                'Task "Water plants" wasn\'t created because `dueString` could not be parsed. Change only `dueString` and retry.',
+                'Task "Water plants" wasn\'t created because `dueString` could not be parsed. A due string must name one specific date or recurrence, such as "tomorrow", "Friday at 3pm", "2026-12-01" or "every weekday"; a period such as "this week" is not a date. Change only `dueString` and retry.',
             )
         })
 
@@ -331,7 +401,7 @@ describe('formatToolExecutionError', () => {
                     dueString: 'tomorrow',
                 }),
             ).toBe(
-                'Task "Lavendel abschneiden" wasn\'t created because `dueString` could not be parsed. Change only `dueString` and retry.',
+                'Task "Lavendel abschneiden" wasn\'t created because `dueString` could not be parsed. A due string must name one specific date or recurrence, such as "tomorrow", "Friday at 3pm", "2026-12-01" or "every weekday"; a period such as "this week" is not a date. Change only `dueString` and retry.',
             )
         })
 
