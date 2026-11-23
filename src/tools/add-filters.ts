@@ -1,8 +1,7 @@
 import { type ColorKey, createCommand } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
-import { logBatchFailures } from '../utils/batch-failures.js'
+import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { ColorOutputSchema, ColorSchema } from '../utils/colors.js'
 import { BatchLimits } from '../utils/constants.js'
 import { FailureSchema } from '../utils/output-schemas.js'
@@ -79,26 +78,28 @@ const addFilters = {
         // causes tempIdMapping to not be returned in the response.
         const { outcomes, tempIdMapping } = await settleSyncCommands(client, commands)
 
-        const createdFilters: z.infer<typeof FilterOutputSchema>[] = []
-        const failures: Array<{ item: string; error: string }> = []
-
-        // Reconstruct created filters from input args + server-assigned IDs
-        filters.forEach((filter, i) => {
+        // A filter counts as created only once Todoist has given it an ID.
+        const created = filters.map((_, i): PromiseSettledResult<string> => {
             const outcome = outcomes[i]
+            if (outcome?.status === 'rejected') {
+                return outcome
+            }
             const tempId = tempIds[i]
             const realId = tempId !== undefined ? tempIdMapping[tempId] : undefined
-            if (outcome?.status !== 'fulfilled' || !realId) {
-                failures.push({
-                    item: filter.name,
-                    error:
-                        outcome?.status === 'rejected'
-                            ? formatBatchItemError(outcome.reason)
-                            : 'Todoist did not return an ID for the created filter',
-                })
-                return
-            }
-            createdFilters.push({
-                id: realId,
+            return realId
+                ? { status: 'fulfilled', value: realId }
+                : {
+                      status: 'rejected',
+                      reason: new Error('Todoist did not return an ID for the created filter'),
+                  }
+        })
+
+        const { succeeded, failures } = partitionSettled(filters, created, (filter) => filter.name)
+
+        // Reconstruct created filters from input args + server-assigned IDs
+        const createdFilters = succeeded.map(
+            ({ item: filter, value: id }): z.infer<typeof FilterOutputSchema> => ({
+                id,
                 name: filter.name,
                 query: filter.query,
                 // Omitted rather than null when absent: structured content is sanitised
@@ -109,8 +110,8 @@ const addFilters = {
                     filter.color !== undefined ? ColorOutputSchema.parse(filter.color) : undefined,
                 isFavorite: filter.isFavorite ?? false,
                 itemOrder: 0,
-            })
-        })
+            }),
+        )
 
         logBatchFailures(ToolNames.ADD_FILTERS, filters.length, failures, { redactItems: true })
 
