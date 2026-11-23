@@ -143,7 +143,7 @@ New tool? Full checklist in `AGENTS.md`. Short version: copy `add-tasks.ts`; add
 - `date.ts` — date parsing/formatting (ISO, Todoist strings)
 - `filter-resolver.ts` — resolve saved filter by id/name to raw filter string
 - `labels.ts` — label name normalization, and `matchesLabels`/`findLabelName`, which compare names the way the filter query does (ignoring case and accents)
-- `filtered-pages.ts` — `collectFilteredPage`: one page of `limit` matches for a list the API cannot filter, fetching further pages as needed and returning a cursor that resumes part-way through a page
+- `filtered-pages.ts` — `collectFilteredPage`: one page of `limit` matches for a short list the API cannot filter (a project's tasks), read from the start on every call, with a cursor naming the next match so that completing returned items between calls neither skips matches nor ends the list
 - `colors.ts` — Todoist color name ↔ key
 - `reminder-schemas.ts` — reminder-specific shapes
 - `assignment-validator.ts` — validate collaborator assignments

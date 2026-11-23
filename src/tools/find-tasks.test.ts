@@ -324,7 +324,7 @@ describe(`${FIND_TASKS} tool`, () => {
             const result = await findTasks.execute(params, mockTodoistApi)
 
             expect(mockTodoistApi.getTasks).toHaveBeenCalledWith({
-                limit: 10,
+                limit: 200,
                 cursor: null,
                 ...expectedApiParam,
             })
@@ -367,7 +367,7 @@ describe(`${FIND_TASKS} tool`, () => {
             )
 
             expect(mockTodoistApi.getTasks).toHaveBeenCalledWith({
-                limit: 10,
+                limit: 200,
                 cursor: null,
                 projectId: TEST_IDS.PROJECT_TEST,
             })
@@ -395,30 +395,19 @@ describe(`${FIND_TASKS} tool`, () => {
             expect(textContent).toContain('Tasks may be in other sections of the project')
         })
 
-        it('should handle pagination with containers', async () => {
-            mockTodoistApi.getTasks.mockResolvedValue({
-                results: [],
-                nextCursor: 'next-cursor',
-            })
+        it('should refuse a container cursor it did not issue', async () => {
+            await expect(
+                findTasks.execute(
+                    {
+                        projectId: TEST_IDS.PROJECT_TEST,
+                        limit: 25,
+                        cursor: 'current-cursor',
+                    },
+                    mockTodoistApi,
+                ),
+            ).rejects.toThrow('Invalid cursor')
 
-            const result = await findTasks.execute(
-                {
-                    projectId: TEST_IDS.PROJECT_TEST,
-                    limit: 25,
-                    cursor: 'current-cursor',
-                },
-                mockTodoistApi,
-            )
-
-            expect(mockTodoistApi.getTasks).toHaveBeenCalledWith({
-                limit: 25,
-                cursor: 'current-cursor',
-                projectId: TEST_IDS.PROJECT_TEST,
-            })
-
-            const structuredContent = result.structuredContent
-            expect(structuredContent.hasMore).toBe(true)
-            expect(structuredContent.nextCursor).toBe('next-cursor')
+            expect(mockTodoistApi.getTasks).not.toHaveBeenCalled()
         })
 
         it('should omit a first-page cursor sentinel from container queries', async () => {
@@ -434,7 +423,7 @@ describe(`${FIND_TASKS} tool`, () => {
             )
 
             expect(mockTodoistApi.getTasks).toHaveBeenCalledWith({
-                limit: 10,
+                limit: 200,
                 cursor: null,
                 projectId: TEST_IDS.PROJECT_TEST,
             })
@@ -654,7 +643,7 @@ describe(`${FIND_TASKS} tool`, () => {
                 const result = await findTasks.execute(params, mockTodoistApi)
 
                 expect(mockTodoistApi.getTasks).toHaveBeenCalledWith({
-                    limit: 10,
+                    limit: 200,
                     cursor: null,
                     ...expectedApiParam,
                 })
@@ -724,13 +713,50 @@ describe(`${FIND_TASKS} tool`, () => {
             )
 
             expect(mockTodoistApi.getTasks.mock.calls.map(([args]) => args)).toEqual([
-                { projectId: TEST_IDS.PROJECT_TEST, limit: 10, cursor: null },
+                { projectId: TEST_IDS.PROJECT_TEST, limit: 200, cursor: null },
                 { projectId: TEST_IDS.PROJECT_TEST, limit: 200, cursor: 'cursor-after-page-1' },
             ])
             expect((result.structuredContent.tasks as MappedTask[]).map((task) => task.id)).toEqual(
                 ['mine'],
             )
             expect(result.structuredContent.hasMore).toBe(false)
+        })
+
+        it('should return the rest of a project after the tasks it returned are completed', async () => {
+            const projectTasks = [
+                createMockTask({ id: 'theirs', responsibleUid: 'someone-else' }),
+                ...['1', '2', '3', '4'].map((id) => createMockTask({ id, responsibleUid: null })),
+            ]
+            // Like the API: the cursor names the last task returned, and nothing comes back
+            // once that task is gone.
+            mockTodoistApi.getTasks.mockImplementation(async (args) => {
+                const cursor = args?.cursor ?? null
+                const start =
+                    cursor === null ? 0 : projectTasks.findIndex((task) => task.id === cursor) + 1
+                if (cursor !== null && start === 0) return { results: [], nextCursor: null }
+                const results = projectTasks.slice(start, start + (args?.limit ?? 50))
+                const hasMore = start + results.length < projectTasks.length
+                return { results, nextCursor: hasMore ? (results.at(-1)?.id ?? null) : null }
+            })
+            const params = { projectId: TEST_IDS.PROJECT_TEST, limit: 2 }
+            const taskIds = (result: Awaited<ReturnType<typeof findTasks.execute>>) =>
+                (result.structuredContent.tasks as MappedTask[]).map((task) => task.id)
+
+            const first = await findTasks.execute(params, mockTodoistApi)
+            for (const id of taskIds(first)) {
+                projectTasks.splice(
+                    projectTasks.findIndex((task) => task.id === id),
+                    1,
+                )
+            }
+            const second = await findTasks.execute(
+                { ...params, cursor: first.structuredContent.nextCursor },
+                mockTodoistApi,
+            )
+
+            expect(taskIds(first)).toEqual(['1', '2'])
+            expect(taskIds(second)).toEqual(['3', '4'])
+            expect(second.structuredContent.hasMore).toBe(false)
         })
 
         it('should let the API filter a single label, by its real name', async () => {
@@ -749,7 +775,7 @@ describe(`${FIND_TASKS} tool`, () => {
             expect(mockTodoistApi.getTasks).toHaveBeenCalledWith({
                 projectId: TEST_IDS.PROJECT_TEST,
                 label: 'work',
-                limit: 10,
+                limit: 200,
                 cursor: null,
             })
             expect((result.structuredContent.tasks as MappedTask[]).map((task) => task.id)).toEqual(
@@ -771,7 +797,7 @@ describe(`${FIND_TASKS} tool`, () => {
             expect(mockTodoistApi.getTasks).toHaveBeenCalledWith({
                 projectId: TEST_IDS.PROJECT_TEST,
                 label: 'Errands',
-                limit: 10,
+                limit: 200,
                 cursor: null,
             })
         })
@@ -803,8 +829,8 @@ describe(`${FIND_TASKS} tool`, () => {
         })
 
         it('should keep filtering labels after fetching when resuming a search whose lookup failed', async () => {
-            // The cursor counts tasks of unfiltered pages, so turning on the API label filter
-            // when resuming would skip matches.
+            // A resumed search filters the way its first call did, without looking label
+            // names up again.
             const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
             mockTodoistApi.getLabels
                 .mockRejectedValueOnce(new Error('Network error'))
@@ -890,7 +916,7 @@ describe(`${FIND_TASKS} tool`, () => {
             expect(mockTodoistApi.getLabels).not.toHaveBeenCalled()
             expect(mockTodoistApi.getTasks).toHaveBeenCalledWith({
                 projectId: TEST_IDS.PROJECT_TEST,
-                limit: 10,
+                limit: 200,
                 cursor: null,
             })
             expect((result.structuredContent.tasks as MappedTask[]).map((task) => task.id)).toEqual(
@@ -915,7 +941,7 @@ describe(`${FIND_TASKS} tool`, () => {
 
             expect(mockTodoistApi.getTasks).toHaveBeenCalledWith({
                 projectId: TEST_IDS.PROJECT_TEST,
-                limit: 10,
+                limit: 200,
                 cursor: null,
             })
             expect((result.structuredContent.tasks as MappedTask[]).map((task) => task.id)).toEqual(
@@ -971,7 +997,7 @@ describe(`${FIND_TASKS} tool`, () => {
 
             // Should call API with container filter
             expect(mockTodoistApi.getTasks).toHaveBeenCalledWith({
-                limit: 10,
+                limit: 200,
                 cursor: null,
                 projectId: TEST_IDS.PROJECT_TEST,
             })

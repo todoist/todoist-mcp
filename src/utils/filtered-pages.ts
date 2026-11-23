@@ -1,30 +1,27 @@
 import { z } from 'zod'
 
-/** How many API requests one call may make before handing back a cursor. */
+/**
+ * How many API requests one call may make. A project holds at most 300 active tasks,
+ * so two requests read any project, section or parent task; the rest is headroom.
+ */
 const MAX_REQUESTS = 5
 
-/**
- * Marks a cursor this module issued. The API's own cursors never contain a colon,
- * so anything without this prefix is read as one of them.
- */
+/** Marks a cursor this module issued. */
 const RESUME_CURSOR_PREFIX = 'resume:'
 
+const INVALID_CURSOR_MESSAGE =
+    'Invalid cursor. Pass the nextCursor from the previous call unchanged, with the same parameters.'
+
 const FilteredPagePositionSchema = z.object({
-    cursor: z.string().nullable(),
-    skip: z.number().int().min(0),
+    next: z.string(),
     state: z.unknown().optional(),
 })
 
 /** Where a filtered listing resumes. */
 export type FilteredPagePosition = {
-    /** The API cursor the page started from; null for the first page. */
-    cursor: string | null
-    /** How many items of that page were already examined. */
-    skip: number
-    /**
-     * What the caller saved with the cursor, such as a filter it must keep using for
-     * the counts to stay right. Undefined for a cursor the API issued.
-     */
+    /** The id of the first match not yet returned; the next page starts there. */
+    next: string
+    /** What the caller saved with the cursor, to read back on later pages. */
     state?: unknown
 }
 
@@ -35,14 +32,13 @@ function encodeCursor(position: FilteredPagePosition): string {
 }
 
 /**
- * Reads a cursor that {@link collectFilteredPage} returned. A cursor the API issued
- * is read as the start of its page, with no saved state. Undefined for no cursor.
+ * Reads a cursor that {@link collectFilteredPage} returned. Undefined for no cursor.
  */
 export function readFilteredPageCursor(
     cursor: string | undefined,
 ): FilteredPagePosition | undefined {
     if (!cursor) return undefined
-    if (!cursor.startsWith(RESUME_CURSOR_PREFIX)) return { cursor, skip: 0 }
+    if (!cursor.startsWith(RESUME_CURSOR_PREFIX)) throw new Error(INVALID_CURSOR_MESSAGE)
 
     try {
         const encoded = cursor.slice(RESUME_CURSOR_PREFIX.length)
@@ -50,31 +46,25 @@ export function readFilteredPageCursor(
             JSON.parse(Buffer.from(encoded, 'base64url').toString()),
         )
     } catch {
-        throw new Error(
-            'Invalid cursor. Pass the nextCursor from the previous call unchanged, with the same parameters.',
-        )
+        throw new Error(INVALID_CURSOR_MESSAGE)
     }
 }
 
 /**
- * One page of the items that pass `matches`, for lists the API cannot filter itself.
+ * One page of the items that pass `matches`, for short lists the API cannot filter
+ * itself, such as the tasks of one project.
  *
- * Filtering a single API page would return fewer than `limit` items, often none, when
- * the matches sit further down the list. This keeps fetching pages until it has
- * `limit` matches or the list ends, making at most a few requests per call. The
- * returned cursor resumes right after the last item examined, even part-way through
- * an API page, so repeated calls return every match exactly once.
+ * Every call reads the list from the start, a page of `maxPageSize` at a time, and
+ * stops once it has `limit` matches and knows whether another one follows. The cursor
+ * names that next match, so the following call resumes exactly there. The API's own
+ * cursors name the last item returned, and find nothing once that item is completed,
+ * moved or deleted; anchoring on a match the caller has not seen yet means acting on
+ * the returned items between calls neither skips matches nor ends the list early.
  *
- * The cursor counts items of the pages `fetchPage` returned, so every call must fetch
- * the same list. `state` is saved in the cursor for the caller to read back with
- * {@link readFilteredPageCursor}: put anything that decides what `fetchPage` returns
- * there, rather than working it out again on each call.
- *
- * The first request asks only for what one page of results needs, so a list where
- * most items match costs a single request, and with no state to save it returns
- * the API's own cursor.
+ * `state` is saved in the cursor for the caller to read back with
+ * {@link readFilteredPageCursor}, so later pages can reuse what the first one worked out.
  */
-export async function collectFilteredPage<T>({
+export async function collectFilteredPage<T extends { id: string }>({
     fetchPage,
     matches,
     limit,
@@ -90,38 +80,37 @@ export async function collectFilteredPage<T>({
     from: FilteredPagePosition | undefined
     state?: unknown
 }): Promise<{ items: T[]; nextCursor: string | null }> {
-    let pageCursor = from?.cursor ?? null
-    let skip = from?.skip ?? 0
     const items: T[] = []
-    // A cursor the API issued already resumes at the start of its page, so it is
-    // only wrapped when there is more to say: a position part-way through, or state.
-    const resumeAt = (cursor: string | null, examined: number) =>
-        examined === 0 && state === undefined && cursor !== null
-            ? cursor
-            : encodeCursor({ cursor, skip: examined, state })
+    let resumeAt = from?.next
+    let pageCursor: string | null = null
 
     for (let request = 0; request < MAX_REQUESTS; request++) {
-        const pageSize = request === 0 ? Math.min(maxPageSize, skip + limit) : maxPageSize
-        const { results, nextCursor } = await fetchPage({ cursor: pageCursor, limit: pageSize })
+        const { results, nextCursor } = await fetchPage({ cursor: pageCursor, limit: maxPageSize })
 
-        for (let index = skip; index < results.length; index++) {
-            const item = results[index] as T
-            if (!matches(item)) continue
-
-            items.push(item)
-            if (items.length === limit) {
-                const examined = index + 1
-                if (examined < results.length) {
-                    return { items, nextCursor: resumeAt(pageCursor, examined) }
-                }
-                return { items, nextCursor: nextCursor ? resumeAt(nextCursor, 0) : null }
+        for (const item of results) {
+            if (resumeAt !== undefined) {
+                if (item.id !== resumeAt) continue
+                resumeAt = undefined
             }
+            if (!matches(item)) continue
+            if (items.length === limit) {
+                return { items, nextCursor: encodeCursor({ next: item.id, state }) }
+            }
+            items.push(item)
         }
 
-        if (!nextCursor) return { items, nextCursor: null }
+        if (!nextCursor) {
+            if (resumeAt !== undefined) {
+                throw new Error(
+                    'The item this cursor resumes at is no longer in the list, for example because it or its parent was completed, moved or deleted. Search again without a cursor.',
+                )
+            }
+            return { items, nextCursor: null }
+        }
         pageCursor = nextCursor
-        skip = 0
     }
 
-    return { items, nextCursor: resumeAt(pageCursor, 0) }
+    throw new Error(
+        `Stopped after reading ${MAX_REQUESTS * maxPageSize} items without reaching the end of the list.`,
+    )
 }

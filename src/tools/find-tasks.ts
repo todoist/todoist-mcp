@@ -314,16 +314,13 @@ const findTasks = {
 } satisfies TodoistTool<typeof ArgsSchema, typeof OutputSchema>
 
 /**
- * Saved in a container search's cursor. The cursor counts tasks of the pages the API
- * returned, so a resumed search must ask for the same pages.
+ * Saved in a container search's cursor, so later pages filter on the same API label
+ * without looking label names up again.
  */
 const ContainerCursorStateSchema = z.object({ apiLabel: z.string().optional() })
 type ContainerCursorState = z.infer<typeof ContainerCursorStateSchema>
 
-/**
- * The API label a container search started with. None for a cursor the API issued
- * directly, since that search did not filter on one.
- */
+/** The API label a container search started with, if it filtered on one. */
 function readApiLabel(state: unknown): string | undefined {
     if (state === undefined) return undefined
     const parsed = ContainerCursorStateSchema.safeParse(state)
