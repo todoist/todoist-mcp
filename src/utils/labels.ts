@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { ApiLimits } from './constants.js'
 
 const LABELS_OPERATORS = ['and', 'or'] as const
-type LabelsOperator = (typeof LABELS_OPERATORS)[number]
+export type LabelsOperator = (typeof LABELS_OPERATORS)[number]
 
 export const LabelsSchema = {
     labels: z

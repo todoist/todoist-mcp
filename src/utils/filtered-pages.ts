@@ -1,39 +1,54 @@
 import { z } from 'zod'
 
-/** The largest page the Todoist API returns. */
-const MAX_PAGE_SIZE = 200
-
 /** How many API requests one call may make before handing back a cursor. */
 const MAX_REQUESTS = 5
 
 /**
  * Marks a cursor this module issued. The API's own cursors never contain a colon,
- * so anything without this prefix is passed to the API as it is.
+ * so anything without this prefix is read as one of them.
  */
 const RESUME_CURSOR_PREFIX = 'resume:'
 
-const ResumePointSchema = z.object({
-    /** The API cursor the page started from; null for the first page. */
+const FilteredPagePositionSchema = z.object({
     cursor: z.string().nullable(),
-    /** How many items of that page were already examined. */
-    skip: z.number().int().min(1),
+    skip: z.number().int().min(0),
+    state: z.unknown().optional(),
 })
 
-type ResumePoint = { cursor: string | null; skip: number }
+/** Where a filtered listing resumes. */
+export type FilteredPagePosition = {
+    /** The API cursor the page started from; null for the first page. */
+    cursor: string | null
+    /** How many items of that page were already examined. */
+    skip: number
+    /**
+     * What the caller saved with the cursor, such as a filter it must keep using for
+     * the counts to stay right. Undefined for a cursor the API issued.
+     */
+    state?: unknown
+}
 
 type Page<T> = { results: T[]; nextCursor: string | null }
 
-function encodeResumeCursor(point: ResumePoint): string {
-    return `${RESUME_CURSOR_PREFIX}${Buffer.from(JSON.stringify(point)).toString('base64url')}`
+function encodeCursor(position: FilteredPagePosition): string {
+    return `${RESUME_CURSOR_PREFIX}${Buffer.from(JSON.stringify(position)).toString('base64url')}`
 }
 
-function decodeCursor(cursor: string | undefined): ResumePoint {
-    if (!cursor) return { cursor: null, skip: 0 }
+/**
+ * Reads a cursor that {@link collectFilteredPage} returned. A cursor the API issued
+ * is read as the start of its page, with no saved state. Undefined for no cursor.
+ */
+export function readFilteredPageCursor(
+    cursor: string | undefined,
+): FilteredPagePosition | undefined {
+    if (!cursor) return undefined
     if (!cursor.startsWith(RESUME_CURSOR_PREFIX)) return { cursor, skip: 0 }
 
     try {
         const encoded = cursor.slice(RESUME_CURSOR_PREFIX.length)
-        return ResumePointSchema.parse(JSON.parse(Buffer.from(encoded, 'base64url').toString()))
+        return FilteredPagePositionSchema.parse(
+            JSON.parse(Buffer.from(encoded, 'base64url').toString()),
+        )
     } catch {
         throw new Error(
             'Invalid cursor. Pass the nextCursor from the previous call unchanged, with the same parameters.',
@@ -50,25 +65,43 @@ function decodeCursor(cursor: string | undefined): ResumePoint {
  * returned cursor resumes right after the last item examined, even part-way through
  * an API page, so repeated calls return every match exactly once.
  *
+ * The cursor counts items of the pages `fetchPage` returned, so every call must fetch
+ * the same list. `state` is saved in the cursor for the caller to read back with
+ * {@link readFilteredPageCursor}: put anything that decides what `fetchPage` returns
+ * there, rather than working it out again on each call.
+ *
  * The first request asks only for what one page of results needs, so a list where
- * most items match costs the same single request as before.
+ * most items match costs a single request, and with no state to save it returns
+ * the API's own cursor.
  */
 export async function collectFilteredPage<T>({
     fetchPage,
     matches,
     limit,
-    cursor,
+    maxPageSize,
+    from,
+    state,
 }: {
     fetchPage: (args: { cursor: string | null; limit: number }) => Promise<Page<T>>
     matches: (item: T) => boolean
     limit: number
-    cursor: string | undefined
+    /** The largest page the API returns. */
+    maxPageSize: number
+    from: FilteredPagePosition | undefined
+    state?: unknown
 }): Promise<{ items: T[]; nextCursor: string | null }> {
-    let { cursor: pageCursor, skip } = decodeCursor(cursor)
+    let pageCursor = from?.cursor ?? null
+    let skip = from?.skip ?? 0
     const items: T[] = []
+    // A cursor the API issued already resumes at the start of its page, so it is
+    // only wrapped when there is more to say: a position part-way through, or state.
+    const resumeAt = (cursor: string | null, examined: number) =>
+        examined === 0 && state === undefined && cursor !== null
+            ? cursor
+            : encodeCursor({ cursor, skip: examined, state })
 
     for (let request = 0; request < MAX_REQUESTS; request++) {
-        const pageSize = request === 0 ? Math.min(MAX_PAGE_SIZE, skip + limit) : MAX_PAGE_SIZE
+        const pageSize = request === 0 ? Math.min(maxPageSize, skip + limit) : maxPageSize
         const { results, nextCursor } = await fetchPage({ cursor: pageCursor, limit: pageSize })
 
         for (let index = skip; index < results.length; index++) {
@@ -78,13 +111,10 @@ export async function collectFilteredPage<T>({
             items.push(item)
             if (items.length === limit) {
                 const examined = index + 1
-                return {
-                    items,
-                    nextCursor:
-                        examined < results.length
-                            ? encodeResumeCursor({ cursor: pageCursor, skip: examined })
-                            : nextCursor,
+                if (examined < results.length) {
+                    return { items, nextCursor: resumeAt(pageCursor, examined) }
                 }
+                return { items, nextCursor: nextCursor ? resumeAt(nextCursor, 0) : null }
             }
         }
 
@@ -93,5 +123,5 @@ export async function collectFilteredPage<T>({
         skip = 0
     }
 
-    return { items, nextCursor: pageCursor }
+    return { items, nextCursor: resumeAt(pageCursor, 0) }
 }

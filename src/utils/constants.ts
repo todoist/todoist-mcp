@@ -17,6 +17,8 @@ export const ApiLimits = {
     TASKS_DEFAULT: 10,
     /** Maximum limit for task search and list operations */
     TASKS_MAX: 100,
+    /** Largest page of tasks the API returns, for reading past tasks a tool filters out */
+    TASKS_PAGE_MAX: 200,
     /** Default limit for completed tasks */
     COMPLETED_TASKS_DEFAULT: 50,
     /** Maximum limit for completed tasks */

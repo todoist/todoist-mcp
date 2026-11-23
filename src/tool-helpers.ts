@@ -5,6 +5,8 @@ import {
     type ColorKey,
     type Comment,
     type CurrentUser,
+    type GetLabelsArgs,
+    type GetLabelsResponse,
     type GetProjectsArgs,
     type GetProjectsResponse,
     type GetWorkspaceProjectsArgs,
@@ -362,6 +364,15 @@ export async function searchAllLabels(client: TodoistApi, query: string): Promis
         args: { query: toWildcardQuery(query) },
         limit: ApiLimits.LABELS_MAX,
     })
+}
+
+/** The names of all the user's personal labels. */
+export async function fetchAllLabelNames(client: TodoistApi): Promise<string[]> {
+    const labels = await fetchAllPages<GetLabelsArgs, GetLabelsResponse, Label>({
+        apiMethod: client.getLabels.bind(client),
+        limit: ApiLimits.LABELS_MAX,
+    })
+    return labels.map((label) => label.name)
 }
 
 export async function fetchAllSharedLabels(client: TodoistApi): Promise<string[]> {
