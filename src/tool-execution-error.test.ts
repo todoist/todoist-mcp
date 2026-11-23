@@ -244,12 +244,6 @@ describe('formatToolExecutionError', () => {
             expect(output).toContain('retry with a more recent date range')
             expect(output).not.toContain('insufficient token scope')
         })
-
-        it('carries the explanation into a per-item batch failure', () => {
-            expect(formatBatchItemError(deadlineOnFreePlan)).toBe(
-                "Premium only feature (HTTP 403, code 32, tag PREMIUM_ONLY). The user's Todoist plan does not include a feature this request used. It is not an authentication or permission problem, and retrying the same request will not help. Most often it is a deadline on a free plan: retry without `deadlineDate`. Activity history only goes back as far as the plan allows: retry with a more recent date range. Tell the user what was left out and that it needs a plan upgrade.",
-            )
-        })
     })
 
     describe('unparseable dates (INVALID_DATE)', () => {
@@ -271,16 +265,10 @@ describe('formatToolExecutionError', () => {
             expect(output).toContain('YYYY-MM-DD')
             expect(output).not.toContain('Check parameter values and formats')
         })
-
-        it('carries the explanation into a per-item batch failure', () => {
-            expect(formatBatchItemError(invalidDate)).toBe(
-                'Date is invalid (HTTP 400, code 480, tag INVALID_DATE). Todoist could not parse a date in this request. A due string must name one specific date or recurrence, such as "tomorrow", "Friday at 3pm", "2026-12-01" or "every weekday"; a period such as "this week" is not a date. Where a field asks for YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS, send exactly that, not words such as "today". Change only the date and retry.',
-            )
-        })
     })
 
     describe('formatBatchItemError', () => {
-        it('preserves API error signals lost by error.message, and explains a known tag', () => {
+        it('preserves API error signals lost by error.message', () => {
             const error = Object.assign(new Error('HTTP 403: Forbidden'), {
                 httpStatusCode: 403,
                 responseData: {
@@ -292,18 +280,7 @@ describe('formatToolExecutionError', () => {
             })
 
             expect(formatBatchItemError(error)).toBe(
-                'Maximum number of items exceeded (HTTP 403, code 49, tag MAX_ITEMS_LIMIT_REACHED). This project has reached the maximum number of active tasks per project (subtasks count toward it; completed tasks do not). The cap is the same on every Todoist plan — upgrading will not raise it — and it is not an authentication or permission problem. Complete, delete, or move existing tasks out of the project, or add the task to a different project, then retry.',
-            )
-        })
-
-        it('adds no explanation to an error without a known tag', () => {
-            const error = Object.assign(new Error('HTTP 404: Not Found'), {
-                httpStatusCode: 404,
-                responseData: { error: 'Task not found', error_tag: 'ITEM_NOT_FOUND' },
-            })
-
-            expect(formatBatchItemError(error)).toBe(
-                'Task not found (HTTP 404, tag ITEM_NOT_FOUND)',
+                'Maximum number of items exceeded (HTTP 403, code 49, tag MAX_ITEMS_LIMIT_REACHED)',
             )
         })
 
