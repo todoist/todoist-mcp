@@ -85,7 +85,7 @@ const addFilters = {
                 return outcome
             }
             const tempId = tempIds[i]
-            const realId = tempId !== undefined ? tempIdMapping[tempId] : undefined
+            const realId = outcome && tempId !== undefined ? tempIdMapping[tempId] : undefined
             return realId
                 ? { status: 'fulfilled', value: realId }
                 : {
