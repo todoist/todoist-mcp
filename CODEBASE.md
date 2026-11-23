@@ -142,7 +142,8 @@ New tool? Full checklist in `AGENTS.md`. Short version: copy `add-tasks.ts`; add
 - `duration-parser.ts` — `"2h30m"` / `"3d"` ↔ `{ amount, unit }` (minutes or days, no 24h cap), plus `formatDuration` and the shared `DURATION_INPUT_DESCRIPTION`
 - `date.ts` — date parsing/formatting (ISO, Todoist strings)
 - `filter-resolver.ts` — resolve saved filter by id/name to raw filter string
-- `labels.ts` — label name normalization
+- `labels.ts` — label name normalization, and `matchesLabels`/`findLabelName`, which compare names the way the filter query does (ignoring case and accents)
+- `filtered-pages.ts` — `collectFilteredPage`: one page of `limit` matches for a list the API cannot filter, fetching further pages as needed and returning a cursor that resumes part-way through a page
 - `colors.ts` — Todoist color name ↔ key
 - `reminder-schemas.ts` — reminder-specific shapes
 - `assignment-validator.ts` — validate collaborator assignments

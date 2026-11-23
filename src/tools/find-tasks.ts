@@ -1,4 +1,11 @@
-import { escapeFilterToken, GetTasksArgs } from '@todoist/sdk'
+import {
+    escapeFilterToken,
+    type GetLabelsArgs,
+    type GetLabelsResponse,
+    GetTasksArgs,
+    type Label,
+    type TodoistApi,
+} from '@todoist/sdk'
 import { z } from 'zod'
 import {
     appendToQuery,
@@ -9,6 +16,8 @@ import {
 } from '../filter-helpers.js'
 import type { TodoistTool } from '../todoist-tool.js'
 import {
+    fetchAllPages,
+    fetchAllSharedLabels,
     getTasksByFilter,
     type MappedTask,
     mapTask,
@@ -17,7 +26,9 @@ import {
 } from '../tool-helpers.js'
 import { ApiLimits } from '../utils/constants.js'
 import { filterResolver } from '../utils/filter-resolver.js'
+import { collectFilteredPage } from '../utils/filtered-pages.js'
 import {
+    findLabelName,
     formatLabelsForDisplay,
     generateLabelsFilter,
     LabelsSchema,
@@ -144,10 +155,7 @@ const findTasks = {
 
         // If using container-based filtering, use direct API
         if (projectId || sectionId || parentId) {
-            const taskParams: GetTasksArgs = {
-                limit,
-                cursor: normalizedCursor ?? null,
-            }
+            const taskParams: Omit<GetTasksArgs, 'cursor' | 'limit'> = {}
 
             if (projectId) {
                 taskParams.projectId = await resolveInboxProjectId({ projectId, user: todoistUser })
@@ -155,32 +163,32 @@ const findTasks = {
             if (sectionId) taskParams.sectionId = sectionId
             if (parentId) taskParams.parentId = parentId
 
-            const { results, nextCursor } = await client.getTasks(taskParams)
-            const mappedTasks = results.map(mapTask)
+            const apiLabel = await resolveApiLabel(client, labels, labelsOperator)
+            if (apiLabel) taskParams.label = apiLabel
 
-            // Apply search text filter
-            let filteredTasks = searchText
-                ? mappedTasks.filter(
-                      (task) =>
-                          task.content.toLowerCase().includes(searchText.toLowerCase()) ||
-                          task.description?.toLowerCase().includes(searchText.toLowerCase()),
-                  )
-                : mappedTasks
-
-            // Apply responsibleUid filter
-            filteredTasks = filterTasksByResponsibleUser({
-                tasks: filteredTasks,
-                resolvedAssigneeId,
-                currentUserId: todoistUser.id,
-                responsibleUserFiltering,
+            const lowerSearchText = searchText?.toLowerCase()
+            const { items: filteredTasks, nextCursor } = await collectFilteredPage({
+                fetchPage: async (page) => {
+                    const { results, nextCursor } = await client.getTasks({
+                        ...taskParams,
+                        ...page,
+                    })
+                    return { results: results.map(mapTask), nextCursor }
+                },
+                matches: (task) =>
+                    (!lowerSearchText ||
+                        task.content.toLowerCase().includes(lowerSearchText) ||
+                        Boolean(task.description?.toLowerCase().includes(lowerSearchText))) &&
+                    filterTasksByResponsibleUser({
+                        tasks: [task],
+                        resolvedAssigneeId,
+                        currentUserId: todoistUser.id,
+                        responsibleUserFiltering,
+                    }).length === 1 &&
+                    (!labels?.length || matchesLabels(task.labels, labels, labelsOperator)),
+                limit,
+                cursor: normalizedCursor,
             })
-
-            // Apply label filter
-            if (labels && labels.length > 0) {
-                filteredTasks = filteredTasks.filter((task) =>
-                    matchesLabels(task.labels, labels, labelsOperator),
-                )
-            }
 
             const textContent = generateTextContent({
                 tasks: filteredTasks,
@@ -298,6 +306,43 @@ const findTasks = {
         }
     },
 } satisfies TodoistTool<typeof ArgsSchema, typeof OutputSchema>
+
+/**
+ * A label the API can filter a container search on itself, so fewer pages need
+ * fetching: the only label requested, or one of several that must all be present.
+ * The API compares names exactly, so the label is first matched to the user's own
+ * spelling of it, ignoring case and accents. Undefined when the API cannot filter
+ * on the labels requested, or no label name matches.
+ */
+async function resolveApiLabel(
+    client: TodoistApi,
+    labels: string[] | undefined,
+    labelsOperator: 'and' | 'or' | undefined,
+): Promise<string | undefined> {
+    if (!labels?.length || (labels.length > 1 && labelsOperator !== 'and')) return undefined
+
+    try {
+        const [personalLabels, sharedLabels] = await Promise.all([
+            fetchAllPages<GetLabelsArgs, GetLabelsResponse, Label>({
+                apiMethod: client.getLabels.bind(client),
+                limit: ApiLimits.LABELS_MAX,
+            }),
+            fetchAllSharedLabels(client),
+        ])
+        const names = [...personalLabels.map((label) => label.name), ...sharedLabels]
+        for (const label of labels) {
+            const name = findLabelName(label, names)
+            if (name) return name
+        }
+        return undefined
+    } catch (error) {
+        console.error(
+            `${ToolNames.FIND_TASKS}: could not look up label names, filtering labels after fetching`,
+            error,
+        )
+        return undefined
+    }
+}
 
 function getContainerZeroReasonHints(args: z.infer<z.ZodObject<typeof ArgsSchema>>): string[] {
     if (args.projectId) {

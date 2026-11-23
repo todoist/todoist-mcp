@@ -40,19 +40,38 @@ export function generateLabelsFilter(labels: string[] = [], labelsOperator: Labe
 }
 
 /**
+ * A label name in the form Todoist's filter query compares: case and accents
+ * ignored, so `Café` and `cafe` are the same label.
+ */
+function toComparableName(name: string): string {
+    return name.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+}
+
+/**
  * Whether a task's labels satisfy the requested labels, for searches that filter
- * client-side. Requested names are read the same way as in `generateLabelsFilter`,
- * so `@work` matches a task labelled `work` on both paths.
+ * client-side. Names are compared the way the filter query compares them, so `@Work`
+ * matches a task labelled `work` on both paths.
  */
 export function matchesLabels(
     taskLabels: string[],
     labels: string[],
     labelsOperator: LabelsOperator = 'or',
 ): boolean {
-    const names = labels.map(toLabelName)
+    const taskNames = new Set(taskLabels.map(toComparableName))
+    const names = labels.map((label) => toComparableName(toLabelName(label)))
     return labelsOperator === 'and'
-        ? names.every((name) => taskLabels.includes(name))
-        : names.some((name) => taskLabels.includes(name))
+        ? names.every((name) => taskNames.has(name))
+        : names.some((name) => taskNames.has(name))
+}
+
+/**
+ * The name, out of `names`, that a requested label refers to, ignoring case and
+ * accents. Undefined when none does, or when more than one does.
+ */
+export function findLabelName(label: string, names: string[]): string | undefined {
+    const wanted = toComparableName(toLabelName(label))
+    const found = new Set(names.filter((name) => toComparableName(name) === wanted))
+    return found.size === 1 ? [...found][0] : undefined
 }
 
 /**

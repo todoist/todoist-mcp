@@ -1,4 +1,9 @@
-import { formatLabelsForDisplay, generateLabelsFilter, matchesLabels } from './labels.js'
+import {
+    findLabelName,
+    formatLabelsForDisplay,
+    generateLabelsFilter,
+    matchesLabels,
+} from './labels.js'
 
 describe('generateLabelsFilter', () => {
     it('returns an empty string when there are no labels', () => {
@@ -74,5 +79,41 @@ describe('matchesLabels', () => {
 
     it('defaults to "or"', () => {
         expect(matchesLabels(taskLabels, ['@home', '@work'])).toBe(true)
+    })
+
+    it.each([
+        { name: 'case', taskLabel: 'work', label: 'Work' },
+        { name: 'case on the task side', taskLabel: 'Work', label: 'work' },
+        { name: 'accents', taskLabel: 'Café', label: 'cafe' },
+        { name: 'case and accents with an @', taskLabel: 'café', label: '@CAFÉ' },
+    ])('ignores $name, as the filter query does', ({ taskLabel, label }) => {
+        expect(matchesLabels([taskLabel], [label])).toBe(true)
+    })
+
+    it("keeps an @ that is part of a task's label name", () => {
+        expect(matchesLabels(['@home'], ['home'])).toBe(false)
+        expect(matchesLabels(['@home'], ['@@home'])).toBe(true)
+    })
+})
+
+describe('findLabelName', () => {
+    const names = ['work', 'Café', 'home']
+
+    it.each([
+        { label: 'work', expected: 'work' },
+        { label: 'Work', expected: 'work' },
+        { label: ' @WORK ', expected: 'work' },
+        { label: 'cafe', expected: 'Café' },
+        { label: 'errands', expected: undefined },
+    ])('finds the real name for $label', ({ label, expected }) => {
+        expect(findLabelName(label, names)).toBe(expected)
+    })
+
+    it('finds nothing when two names differ only in case', () => {
+        expect(findLabelName('work', ['Work', 'work'])).toBeUndefined()
+    })
+
+    it('treats the same name listed twice as one', () => {
+        expect(findLabelName('Work', ['work', 'work'])).toBe('work')
     })
 })
