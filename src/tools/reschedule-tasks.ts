@@ -175,11 +175,11 @@ function buildRescheduleFields(
 
 function buildRescheduleDate(inputDate: string, existingDue: NonNullable<Task['due']>): string {
     const isInputDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(inputDate)
+    const existingDateTime = existingDue.date.includes('T') ? existingDue.date : existingDue.datetime
 
-    if (isInputDateOnly && existingDue.datetime) {
-        // Preserve existing time when only a new date is provided
-        const timePart = existingDue.datetime.substring(10)
-        return inputDate + timePart
+    if (isInputDateOnly && existingDateTime) {
+        // Preserve the exact time and timezone suffix without converting floating times.
+        return inputDate + existingDateTime.substring(10)
     }
 
     return inputDate
