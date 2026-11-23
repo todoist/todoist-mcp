@@ -378,9 +378,11 @@ const SCENARIOS: Scenario[] = [
         expect: [ToolNames.UPDATE_PROJECTS],
         context: { [ToolNames.FIND_FOLDERS]: EVAL_FOLDERS },
         check: (input) => {
+            const projects = Array.isArray(input.projects) ? input.projects : []
             const project = firstItem(input, 'projects')
             // An icon sent alongside the move would overwrite the project's own.
-            return project?.id === '6XQ3Plan99' &&
+            return projects.length === 1 &&
+                project?.id === '6XQ3Plan99' &&
                 project.folderId === EVAL_FOLDER_ID &&
                 !Object.hasOwn(project, 'icon')
                 ? null

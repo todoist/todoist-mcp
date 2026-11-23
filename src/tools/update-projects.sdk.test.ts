@@ -61,6 +61,9 @@ describe('Changing a project icon through the real SDK', () => {
         const result = await updateProjects.execute({ projects: [{ id: 'p-1', icon }] }, client)
 
         expect(bodies).toEqual([{ icon: sent }])
-        expect(result.structuredContent.projects[0]?.icon).toBe(sent ?? undefined)
+        expect(result.structuredContent.failures).toEqual([])
+        expect(result.structuredContent.projects).toEqual([
+            expect.objectContaining({ id: 'p-1', icon: sent ?? undefined }),
+        ])
     })
 })
