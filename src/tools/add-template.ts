@@ -34,7 +34,7 @@ const ArgsSchema = {
         .boolean()
         .optional()
         .describe(
-            'Defaults to true: return the draft without saving (blank, or from the project or CSV), to show the user and edit it first. Pass false to save.',
+            'Defaults to true: return the draft without saving (blank, or from the project or CSV), to show the user and edit it first. Pass false only once the user has seen the draft, or asked to save as is.',
         ),
     content: TemplateContentSchema.optional().describe(
         "The draft to save with preview: false, all of it: a draft with your edits, or one written from scratch. Anything left out isn't saved. With projectId, it replaces the project's content.",
@@ -100,7 +100,7 @@ const ASK_BEFORE_SAVING =
 const addTemplate = {
     name: ToolNames.ADD_TEMPLATE,
     description:
-        'Create a reusable template in the user\'s Todoist: from a project, like the app\'s "Save as template"; from CSV content; or from scratch, starting from a blank draft. By default it only returns the draft: ask the user whether to change anything, then save with preview: false, and `content` if it was edited. Each save creates a new template.',
+        'Create a reusable template in the user\'s Todoist: from a project, like the app\'s "Save as template"; from CSV content; or from scratch, starting from a blank draft. By default it only returns the draft. Show it to the user and ask whether to change anything, even when they described the whole template, unless they asked to save as is. Then save with preview: false, and `content` if it was edited. Each save creates a new template, which cannot be deleted here.',
     parameters: ArgsSchema,
     outputSchema: OutputSchema,
     // Open world: sharing a workspace template makes it visible to the workspace's members.

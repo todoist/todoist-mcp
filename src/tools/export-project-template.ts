@@ -45,7 +45,7 @@ const OutputSchema = {
 const exportProjectTemplate = {
     name: ToolNames.EXPORT_PROJECT_TEMPLATE,
     description:
-        'Export an existing project as a Todoist template, either as CSV content or as a shareable URL. Use it to duplicate a project, share its structure, or hand the CSV to import-project-template. To read a project rather than export it, use find-tasks instead — it returns structured tasks rather than raw CSV. The project itself is not modified, but the "url" format uploads a copy and returns a link that anyone holding it can open.',
+        'Export an existing project as a template file, either as CSV content or as a shareable URL. To save a project as a template in the user\'s Todoist, use add-template instead. Use this to duplicate a project, share its structure, or hand the CSV to import-project-template. To read a project rather than export it, use find-tasks instead — it returns structured tasks rather than raw CSV. The project itself is not modified, but the "url" format uploads a copy and returns a link that anyone holding it can open.',
     parameters: ArgsSchema,
     outputSchema: OutputSchema,
     // Not read-only and open world: the "url" format uploads the CSV and returns a public link.
