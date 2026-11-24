@@ -1,7 +1,39 @@
-import { describe, expect, it } from 'vitest'
-import { buildResponsibleUserQueryFilter, filterTasksByResponsibleUser } from './filter-helpers.js'
+import type { TodoistApi } from '@todoist/sdk'
+import { describe, expect, it, vi } from 'vitest'
+import {
+    buildResponsibleUserQueryFilter,
+    filterTasksByResponsibleUser,
+    resolveResponsibleUser,
+} from './filter-helpers.js'
+import { userResolver } from './utils/user-resolver.js'
 
 describe('filter helpers', () => {
+    describe('resolveResponsibleUser', () => {
+        it('names the people a partial name fits rather than saying nobody was found', async () => {
+            userResolver.clearCache()
+            const client = {
+                getUser: vi
+                    .fn()
+                    .mockResolvedValue({ id: '999', fullName: 'Me', email: 'me@example.com' }),
+                getProjects: vi.fn().mockResolvedValue({
+                    results: [{ id: 'p1', isShared: true }],
+                    nextCursor: null,
+                }),
+                getProjectCollaborators: vi.fn().mockResolvedValue({
+                    results: [
+                        { id: 'u1', name: 'Joanne Smith', email: 'joanne@example.com' },
+                        { id: 'u2', name: 'Ann Lee', email: 'ann@example.com' },
+                    ],
+                    nextCursor: null,
+                }),
+            } as unknown as TodoistApi
+
+            await expect(resolveResponsibleUser(client, 'Ann')).rejects.toThrow(
+                '"Ann" matches 2 people: "Joanne Smith" (ID u1), "Ann Lee" (ID u2). Retry with the ID of the one you mean.',
+            )
+        })
+    })
+
     describe('buildResponsibleUserQueryFilter', () => {
         it('includes unassigned tasks when the resolved user is the current user', () => {
             expect(

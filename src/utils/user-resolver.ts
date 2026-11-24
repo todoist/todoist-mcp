@@ -5,6 +5,7 @@ import {
     type WorkspaceProject,
 } from '@todoist/sdk'
 import { fetchAllPages } from '../tool-helpers.js'
+import { ToolNames } from './tool-names.js'
 
 export type ResolvedUser = {
     userId: string
@@ -18,9 +19,45 @@ export type ProjectCollaborator = {
     email: string
 }
 
+/** What a reference resolves to: one user, the people it fits when it fits several, or nobody. */
+type UserMatch = ResolvedUser | ResolvedUser[] | null
+
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 const MAX_USER_RESOLUTION_CACHE_ENTRIES = 10_000
 const MAX_COLLABORATORS_CACHE_ENTRIES = 1_000
+// How many of the people an ambiguous reference fits its error names.
+const MAX_NAMED_MATCHES = 5
+
+/**
+ * A partial name or email that fits more than one person. Thrown rather than
+ * resolving to nobody, so the caller can say who the reference could mean
+ * instead of reporting the person as unknown.
+ */
+export class AmbiguousUserError extends Error {
+    constructor(reference: string, matches: ResolvedUser[]) {
+        super(describeAmbiguousReference(reference, matches))
+        this.name = 'AmbiguousUserError'
+    }
+}
+
+/**
+ * Names each person in double quotes, which the batch failure log redacts, and
+ * by ID, which settles the choice. Emails are left out: the `strip_emails`
+ * feature hides them from some clients, and it doesn't reach error messages.
+ */
+function describeAmbiguousReference(reference: string, matches: ResolvedUser[]): string {
+    const named = matches
+        .slice(0, MAX_NAMED_MATCHES)
+        .map((user) => `"${user.displayName.replaceAll('"', "'")}" (ID ${user.userId})`)
+        .join(', ')
+    const unnamed = matches.length - MAX_NAMED_MATCHES
+    const list = unnamed > 0 ? `${named} and ${unnamed} more` : named
+    const next =
+        unnamed > 0
+            ? `Retry with the ID of the one you mean, or search for them with ${ToolNames.FIND_PROJECT_COLLABORATORS}.`
+            : 'Retry with the ID of the one you mean.'
+    return `"${reference}" matches ${matches.length} people: ${list}. ${next}`
+}
 
 type CacheEntry<T> = {
     result: T
@@ -88,7 +125,7 @@ export class BoundedTtlCache<T> {
 }
 
 // User resolution cache for performance with TTL.
-const userResolutionCache = new BoundedTtlCache<ResolvedUser | null>(
+const userResolutionCache = new BoundedTtlCache<UserMatch>(
     MAX_USER_RESOLUTION_CACHE_ENTRIES,
     CACHE_TTL,
 )
@@ -139,16 +176,12 @@ function isUserIdLike(input: string): boolean {
 }
 
 /**
- * Finds the collaborator a reference names: an exact ID, then (unless it looks
- * like an ID) an exact name, an exact email and, with `partial`, the one person
- * whose name or email contains it. Names and emails match case-insensitively.
- * A partial match that fits more than one person resolves to nobody, so "Ann"
- * never quietly picks "Joanne" over "Ann Lee".
+ * Finds the collaborator a reference names exactly: an ID, then (unless it
+ * looks like an ID) a name or an email, case-insensitively.
  */
 function findCollaborator(
     collaborators: ProjectCollaborator[],
     input: string,
-    { partial }: { partial: boolean },
 ): ProjectCollaborator | undefined {
     const byId = collaborators.find((c) => c.id === input)
     if (byId || isUserIdLike(input)) {
@@ -158,30 +191,27 @@ function findCollaborator(
     const searchTerm = input.toLowerCase()
     return (
         collaborators.find((c) => c.name.toLowerCase() === searchTerm) ??
-        collaborators.find((c) => c.email.toLowerCase() === searchTerm) ??
-        (partial
-            ? onlyMatch(
-                  collaborators,
-                  (c) => c.name.toLowerCase().includes(searchTerm),
-                  () => onlyMatch(collaborators, (c) => c.email.toLowerCase().includes(searchTerm)),
-              )
-            : undefined)
+        collaborators.find((c) => c.email.toLowerCase() === searchTerm)
     )
 }
 
 /**
- * The one collaborator that `matches`, counting a person once however many
- * projects they share. No match falls through to `otherwise`; more than one
- * person is ambiguous and resolves to nobody.
+ * Everyone whose name contains `input`, or failing that whose email does,
+ * case-insensitively and counting a person once however many projects they
+ * share. Only one match settles a partial reference: with more, "Ann" could
+ * mean "Joanne" as easily as "Ann Lee".
  */
-function onlyMatch(
+function findPartialMatches(
     collaborators: ProjectCollaborator[],
-    matches: (collaborator: ProjectCollaborator) => boolean,
-    otherwise: () => ProjectCollaborator | undefined = () => undefined,
-): ProjectCollaborator | undefined {
-    const found = new Map(collaborators.filter(matches).map((c) => [c.id, c]))
-    if (found.size === 0) return otherwise()
-    return found.size === 1 ? [...found.values()][0] : undefined
+    input: string,
+): ProjectCollaborator[] {
+    const searchTerm = input.toLowerCase()
+    const byName = collaborators.filter((c) => c.name.toLowerCase().includes(searchTerm))
+    const matches =
+        byName.length > 0
+            ? byName
+            : collaborators.filter((c) => c.email.toLowerCase().includes(searchTerm))
+    return [...new Map(matches.map((c) => [c.id, c])).values()]
 }
 
 function toResolvedUser(collaborator: ProjectCollaborator): ResolvedUser {
@@ -202,8 +232,18 @@ export class UserResolver {
     /**
      * Resolve a user name or ID to a user ID by looking up collaborators across all shared projects.
      * Supports exact name matches, partial matches, email matches, and the "me" keyword.
+     *
+     * @throws AmbiguousUserError when a partial name or email fits more than one person
      */
     async resolveUser(client: TodoistApi, nameOrId: string): Promise<ResolvedUser | null> {
+        const match = await this.matchUser(client, nameOrId)
+        if (Array.isArray(match)) {
+            throw new AmbiguousUserError(nameOrId.trim(), match)
+        }
+        return match
+    }
+
+    private async matchUser(client: TodoistApi, nameOrId: string): Promise<UserMatch> {
         // Input validation
         if (!nameOrId || nameOrId.trim().length === 0) {
             return null
@@ -237,7 +277,7 @@ export class UserResolver {
         const cached = cacheKey ? userResolutionCache.get(cacheKey) : undefined
         if (cached !== undefined) return cached
 
-        const cacheResult = (result: ResolvedUser | null) => {
+        const cacheResult = (result: UserMatch) => {
             if (cacheKey) {
                 userResolutionCache.set(cacheKey, result)
             }
@@ -271,8 +311,17 @@ export class UserResolver {
                 return cacheResult(unmatched)
             }
 
-            const match = findCollaborator(allCollaborators, trimmedInput, { partial: true })
-            return cacheResult(match ? toResolvedUser(match) : unmatched)
+            const match = findCollaborator(allCollaborators, trimmedInput)
+            if (match || looksLikeUserId) {
+                return cacheResult(match ? toResolvedUser(match) : unmatched)
+            }
+
+            const partialMatches = findPartialMatches(allCollaborators, trimmedInput).map(
+                toResolvedUser,
+            )
+            return cacheResult(
+                partialMatches.length > 1 ? partialMatches : (partialMatches[0] ?? null),
+            )
         } catch (_error) {
             // If we can't fetch collaborators, a name resolves to nothing rather
             // than a guess, and an ID is returned as given
@@ -300,7 +349,7 @@ export class UserResolver {
         }
 
         const collaborators = await this.getProjectCollaborators(client, projectId)
-        const match = findCollaborator(collaborators, trimmedInput, { partial: false })
+        const match = findCollaborator(collaborators, trimmedInput)
         return match ? toResolvedUser(match) : null
     }
 
@@ -559,6 +608,7 @@ export async function resolveUserRefs(client: TodoistApi, refs: string[]): Promi
     const seenUserIds = new Set<string>()
     const resolved: ResolvedUser[] = []
     const unresolved: string[] = []
+    const ambiguous: string[] = []
 
     // Resolved one at a time on purpose: the first lookup populates the
     // collaborator cache that the rest read, where resolving in parallel would
@@ -568,7 +618,14 @@ export async function resolveUserRefs(client: TodoistApi, refs: string[]): Promi
         if (seenRefs.has(dedupeKey)) continue
         seenRefs.add(dedupeKey)
 
-        const user = await userResolver.resolveUser(client, ref)
+        let user: ResolvedUser | null
+        try {
+            user = await userResolver.resolveUser(client, ref)
+        } catch (error) {
+            if (!(error instanceof AmbiguousUserError)) throw error
+            ambiguous.push(error.message)
+            continue
+        }
         if (!user) {
             unresolved.push(ref)
             continue
@@ -578,11 +635,15 @@ export async function resolveUserRefs(client: TodoistApi, refs: string[]): Promi
         resolved.push(user)
     }
 
-    if (unresolved.length > 0) {
-        const names = unresolved.map((ref) => `"${ref}"`).join(', ')
-        throw new Error(
-            `Could not find user(s): ${names}. Make sure they are collaborators on a shared project.`,
-        )
+    if (unresolved.length > 0 || ambiguous.length > 0) {
+        const problems = [...ambiguous]
+        if (unresolved.length > 0) {
+            const names = unresolved.map((ref) => `"${ref}"`).join(', ')
+            problems.unshift(
+                `Could not find user(s): ${names}. Make sure they are collaborators on a shared project.`,
+            )
+        }
+        throw new Error(problems.join(' '))
     }
 
     return resolved

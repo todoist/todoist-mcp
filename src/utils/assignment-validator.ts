@@ -1,9 +1,10 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { type Project } from '../tool-helpers.js'
-import { type ResolvedUser, userResolver } from './user-resolver.js'
+import { AmbiguousUserError, type ResolvedUser, userResolver } from './user-resolver.js'
 
 export const AssignmentErrorType = {
     USER_NOT_FOUND: 'USER_NOT_FOUND',
+    USER_AMBIGUOUS: 'USER_AMBIGUOUS',
     USER_NOT_COLLABORATOR: 'USER_NOT_COLLABORATOR',
     PROJECT_NOT_SHARED: 'PROJECT_NOT_SHARED',
     TASK_NOT_ACCESSIBLE: 'TASK_NOT_ACCESSIBLE',
@@ -58,9 +59,23 @@ export class AssignmentValidator {
         // request each, which a large workspace can't afford on every assigned task.
         // It still settles anyone not found here, so a person on another project is
         // told apart from someone nobody knows.
-        const resolvedUser =
-            (await userResolver.resolveProjectCollaborator(client, projectId, responsibleUid)) ??
-            (await userResolver.resolveUser(client, responsibleUid))
+        let resolvedUser: ResolvedUser | null
+        try {
+            resolvedUser =
+                (await userResolver.resolveProjectCollaborator(
+                    client,
+                    projectId,
+                    responsibleUid,
+                )) ?? (await userResolver.resolveUser(client, responsibleUid))
+        } catch (error) {
+            if (!(error instanceof AmbiguousUserError)) throw error
+            return {
+                isValid: false,
+                taskId,
+                projectId,
+                error: { type: AssignmentErrorType.USER_AMBIGUOUS, message: error.message },
+            }
+        }
         if (!resolvedUser) {
             return {
                 isValid: false,

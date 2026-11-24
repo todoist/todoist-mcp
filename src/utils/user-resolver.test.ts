@@ -468,22 +468,51 @@ describe('UserResolver', () => {
                 })
             })
 
-            it('does not guess between two people whose names contain it', async () => {
+            it('names the people a partial name fits instead of guessing between them', async () => {
                 mockCollaborators([
                     { id: 'u1', name: 'Joanne Smith', email: 'joanne@example.com' },
                     { id: 'u2', name: 'Ann Lee', email: 'ann@example.com' },
                 ])
 
-                await expect(resolver.resolveUser(mockClient, 'Ann')).resolves.toBeNull()
+                await expect(resolver.resolveUser(mockClient, 'Ann')).rejects.toThrow(
+                    '"Ann" matches 2 people: "Joanne Smith" (ID u1), "Ann Lee" (ID u2). Retry with the ID of the one you mean.',
+                )
             })
 
-            it('does not guess between two people whose emails contain it', async () => {
+            it('names the people a partial email fits, without their emails', async () => {
                 mockCollaborators([
                     { id: 'u1', name: 'Joanne Smith', email: 'j.smith@example.com' },
                     { id: 'u2', name: 'Kim Smith', email: 'k.smith@example.com' },
                 ])
 
-                await expect(resolver.resolveUser(mockClient, 'smith@')).resolves.toBeNull()
+                await expect(resolver.resolveUser(mockClient, 'smith@')).rejects.toThrow(
+                    '"smith@" matches 2 people: "Joanne Smith" (ID u1), "Kim Smith" (ID u2). Retry with the ID of the one you mean.',
+                )
+            })
+
+            it('names the first five people a partial name fits and counts the rest', async () => {
+                mockCollaborators(
+                    ['Ada', 'Bo', 'Cy', 'Di', 'Ed', 'Flo', 'Gus'].map((first, index) => ({
+                        id: `u${index + 1}`,
+                        name: `${first} Smith`,
+                        email: `${first.toLowerCase()}@example.com`,
+                    })),
+                )
+
+                await expect(resolver.resolveUser(mockClient, 'Smith')).rejects.toThrow(
+                    '"Smith" matches 7 people: "Ada Smith" (ID u1), "Bo Smith" (ID u2), "Cy Smith" (ID u3), "Di Smith" (ID u4), "Ed Smith" (ID u5) and 2 more. Retry with the ID of the one you mean, or search for them with find-project-collaborators.',
+                )
+            })
+
+            it('keeps the names it quotes redactable when a name contains a double quote', async () => {
+                mockCollaborators([
+                    { id: 'u1', name: 'Ann "Annie" Lee', email: 'ann@example.com' },
+                    { id: 'u2', name: 'Joanne Smith', email: 'joanne@example.com' },
+                ])
+
+                await expect(resolver.resolveUser(mockClient, 'Ann')).rejects.toThrow(
+                    `"Ann" matches 2 people: "Ann 'Annie' Lee" (ID u1), "Joanne Smith" (ID u2).`,
+                )
             })
 
             it('still prefers an exact name over partial matches', async () => {
@@ -562,6 +591,17 @@ describe('resolveUserRefs', () => {
             resolveUserRefs(mockClient, ['Ana Lovelace', 'Ghost', 'Phantom']),
         ).rejects.toThrow(
             'Could not find user(s): "Ghost", "Phantom". Make sure they are collaborators on a shared project.',
+        )
+    })
+
+    it('names the people an ambiguous reference fits alongside the ones nobody matches', async () => {
+        mockClient.getProjectCollaborators.mockResolvedValue({
+            results: [...collaborators, { id: '333', name: 'Ana Bell', email: 'bell@example.com' }],
+            nextCursor: null,
+        } as unknown as Awaited<ReturnType<TodoistApi['getProjectCollaborators']>>)
+
+        await expect(resolveUserRefs(mockClient, ['Ana', 'Ghost'])).rejects.toThrow(
+            'Could not find user(s): "Ghost". Make sure they are collaborators on a shared project. "Ana" matches 2 people: "Ana Lovelace" (ID 111), "Ana Bell" (ID 333). Retry with the ID of the one you mean.',
         )
     })
 

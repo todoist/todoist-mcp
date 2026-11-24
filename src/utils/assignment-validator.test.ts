@@ -144,6 +144,29 @@ describe('assignmentValidator.validateTaskCreationAssignment', () => {
         })
     })
 
+    it('names the people a partial name fits rather than saying nobody was found', async () => {
+        const adam = { id: 'adam-id', name: 'Adam Smith', email: 'adam@example.com' }
+        client.getProjectCollaborators.mockImplementation(async (projectId: string) =>
+            page(projectId === TARGET_PROJECT_ID ? [ada] : [grace, adam]),
+        )
+
+        const result = await assignmentValidator.validateTaskCreationAssignment(
+            client,
+            TARGET_PROJECT_ID,
+            'Ada',
+        )
+
+        expect(result).toEqual({
+            isValid: false,
+            projectId: TARGET_PROJECT_ID,
+            error: {
+                type: AssignmentErrorType.USER_AMBIGUOUS,
+                message:
+                    '"Ada" matches 2 people: "Ada Lovelace" (ID ada-id), "Adam Smith" (ID adam-id). Retry with the ID of the one you mean.',
+            },
+        })
+    })
+
     it('resolves "me" to the current user', async () => {
         client.getProjectCollaborators.mockResolvedValue(
             page([ada, { id: createMockUser().id, name: 'Test User', email: 'test@example.com' }]),
