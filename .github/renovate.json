@@ -7,6 +7,7 @@
     ],
     "schedule": ["before 4am on Monday"],
     "timezone": "UTC",
+    "prHourlyLimit": 0,
     "labels": ["dependencies"],
     "assigneesFromCodeOwners": true,
     "reviewersFromCodeOwners": true,
@@ -19,11 +20,17 @@
             "matchPackageNames": ["oxlint", "oxfmt"],
             "groupName": "ox toolchain",
             "description": "Group oxlint and oxfmt updates into a single PR"
+        },
+        {
+            "matchUpdateTypes": ["lockFileMaintenance"],
+            "prPriority": 10,
+            "description": "Open lock file maintenance first, so transitive fixes are not starved by the queue of direct updates"
         }
     ],
     "vulnerabilityAlerts": {
         "enabled": true
     },
+    "osvVulnerabilityAlerts": true,
     "lockFileMaintenance": {
         "enabled": true,
         "schedule": ["before 4am on Monday"]
