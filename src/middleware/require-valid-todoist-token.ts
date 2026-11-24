@@ -61,11 +61,27 @@ function cacheFor(ttlMs: number): TokenVerdictCache {
     return verdicts
 }
 
-function sendUnauthorized(res: Response, resourceMetadataUrl?: string): void {
-    res.status(401).set('WWW-Authenticate', buildBearerChallenge({ resourceMetadataUrl })).json({
-        error: 'invalid_token',
-        error_description: 'Todoist API token is invalid or expired',
-    })
+/**
+ * A token that was sent and refused gets RFC 6750 `invalid_token`, so the client knows to refresh
+ * it or authorise again. A request with no token gets the challenge without an error code (RFC
+ * 6750 section 3.1): there is nothing wrong with a token that was never sent.
+ */
+function sendUnauthorized(
+    res: Response,
+    { tokenSent, resourceMetadataUrl }: { tokenSent: boolean; resourceMetadataUrl?: string },
+): void {
+    res.status(401)
+        .set(
+            'WWW-Authenticate',
+            buildBearerChallenge({
+                error: tokenSent ? 'invalid_token' : undefined,
+                resourceMetadataUrl,
+            }),
+        )
+        .json({
+            error: 'invalid_token',
+            error_description: 'Todoist API token is invalid or expired',
+        })
 }
 
 /**
@@ -95,16 +111,16 @@ function respond(
     } else if (result === 'forbidden') {
         sendForbidden(res, resourceMetadataUrl)
     } else {
-        sendUnauthorized(res, resourceMetadataUrl)
+        sendUnauthorized(res, { tokenSent: true, resourceMetadataUrl })
     }
 }
 
 /**
  * Express middleware that validates the Todoist API token before MCP processing.
  *
- * Returns HTTP 401 with a spec-compliant WWW-Authenticate header if the token
- * is invalid, allowing MCP clients to trigger OAuth token refresh, and 403 with
- * an `insufficient_scope` challenge if it lacks a scope the tools need.
+ * Returns HTTP 401 with an `invalid_token` challenge if the token is refused,
+ * allowing MCP clients to trigger OAuth token refresh, and 403 with an
+ * `insufficient_scope` challenge if it lacks a scope the tools need.
  */
 function requireValidTodoistToken(options: RequireValidTodoistTokenOptions): RequestHandler {
     const defaultTtl = options.type === 'static' ? DEFAULT_STATIC_TTL_MS : DEFAULT_DYNAMIC_TTL_MS
@@ -115,7 +131,7 @@ function requireValidTodoistToken(options: RequireValidTodoistTokenOptions): Req
         const apiKey = options.type === 'static' ? options.apiKey : options.getApiKey(req)
 
         if (!apiKey) {
-            sendUnauthorized(res, resourceMetadataUrl)
+            sendUnauthorized(res, { tokenSent: false, resourceMetadataUrl })
             return
         }
 

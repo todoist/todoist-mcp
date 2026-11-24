@@ -62,7 +62,7 @@ describe('requireValidTodoistToken', () => {
 
             expect(next).not.toHaveBeenCalled()
             expect(res.status).toHaveBeenCalledWith(401)
-            expect(res.set).toHaveBeenCalledWith('WWW-Authenticate', 'Bearer')
+            expect(res.set).toHaveBeenCalledWith('WWW-Authenticate', 'Bearer error="invalid_token"')
             expect(res.json).toHaveBeenCalledWith({
                 error: 'invalid_token',
                 error_description: 'Todoist API token is invalid or expired',
@@ -82,7 +82,7 @@ describe('requireValidTodoistToken', () => {
 
             expect(res.set).toHaveBeenCalledWith(
                 'WWW-Authenticate',
-                'Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"',
+                'Bearer error="invalid_token", resource_metadata="https://example.com/.well-known/oauth-protected-resource"',
             )
         })
 
@@ -165,6 +165,8 @@ describe('requireValidTodoistToken', () => {
 
             expect(next).not.toHaveBeenCalled()
             expect(res.status).toHaveBeenCalledWith(401)
+            // RFC 6750 section 3.1: no error code when the request carried no token.
+            expect(res.set).toHaveBeenCalledWith('WWW-Authenticate', 'Bearer')
             expect(mockValidate).not.toHaveBeenCalled()
         })
     })
