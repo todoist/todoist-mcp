@@ -50,6 +50,17 @@ export function shiftDateStringByDays(dateString: string, days: number): string 
 }
 
 /**
+ * The days a search of `daysCount` days from `startDate` covers, as "YYYY-MM-DD" or
+ * "YYYY-MM-DD to YYYY-MM-DD". The search stops before the day after the range, so
+ * the last day named is `daysCount - 1` days after the start.
+ */
+export function describeDateRange(startDate: string, daysCount: number): string {
+    return daysCount > 1
+        ? `${startDate} to ${shiftDateStringByDays(startDate, daysCount - 1)}`
+        : startDate
+}
+
+/**
  * Format a number of minutes east of UTC as a GMT offset string (+HH:MM or -HH:MM).
  */
 function formatGmtOffset(offsetMinutes: number): string {

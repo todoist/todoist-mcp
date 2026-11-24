@@ -7,6 +7,7 @@ import { Empty } from './empty'
 import { Loading } from './loading'
 import { loadRemainingPages } from './pagination'
 import { TaskList } from './task-list'
+import { getTaskListTitle } from './title'
 import type { Task } from './types'
 import styles from './task-list.module.css'
 
@@ -243,17 +244,7 @@ export function App() {
         await app.openLink({ url: TODOIST_APP_URL })
     }, [app])
 
-    const title = useMemo(() => {
-        if (!lastArgs?.startDate || lastArgs.startDate === 'today') {
-            return 'Tasks for Today'
-        }
-
-        if (typeof lastArgs.startDate === 'string') {
-            return `Tasks for ${lastArgs.startDate}`
-        }
-
-        return 'Tasks'
-    }, [lastArgs])
+    const title = useMemo(() => getTaskListTitle(lastArgs), [lastArgs])
 
     if (error) return <div className={styles.error}>Failed to connect</div>
     if (!isConnected || loading) return <Loading />

@@ -10,7 +10,12 @@ import {
 import type { TodoistTool } from '../todoist-tool.js'
 import { getTasksByFilter, normalizePaginationCursor } from '../tool-helpers.js'
 import { ApiLimits } from '../utils/constants.js'
-import { getDateInOffset, parseGmtOffsetToMinutes, shiftDateStringByDays } from '../utils/date.js'
+import {
+    describeDateRange,
+    getDateInOffset,
+    parseGmtOffsetToMinutes,
+    shiftDateStringByDays,
+} from '../utils/date.js'
 import { formatLabelsForDisplay, generateLabelsFilter, LabelsSchema } from '../utils/labels.js'
 import { TaskSchema as TaskOutputSchema } from '../utils/output-schemas.js'
 import { previewTasks, summarizeList } from '../utils/response-builders.js'
@@ -291,17 +296,6 @@ function generateTextContent({
         previewLines: previewTasks(tasks, Math.min(tasks.length, args.limit), assigneeNames),
         zeroReasonHints,
     })
-}
-
-/**
- * The days a specific-date search covers, as "YYYY-MM-DD" or "YYYY-MM-DD to
- * YYYY-MM-DD". The query stops before the day after the range, so the last day
- * named is `daysCount - 1` days after the start.
- */
-function describeDateRange(startDate: string, daysCount: number): string {
-    return daysCount > 1
-        ? `${startDate} to ${shiftDateStringByDays(startDate, daysCount - 1)}`
-        : startDate
 }
 
 export { findTasksByDate }
