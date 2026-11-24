@@ -20,8 +20,15 @@ export type ProjectCollaborator = {
     email: string
 }
 
-/** What a reference resolves to: one user, the people it fits when it fits several, or nobody. */
-type UserMatch = ResolvedUser | ResolvedUser[] | null
+/**
+ * A reference that fits several people: the first few, enough to name in its
+ * error, and how many it fits in all. Kept to that because it is cached per
+ * reference, and a short partial name can fit much of a large workspace.
+ */
+type AmbiguousMatch = { named: ResolvedUser[]; total: number }
+
+/** What a reference resolves to: one user, several people, or nobody. */
+type UserMatch = ResolvedUser | AmbiguousMatch | null
 
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 const MAX_USER_RESOLUTION_CACHE_ENTRIES = 10_000
@@ -34,18 +41,15 @@ const MAX_NAMED_MATCHES = 5
  * by ID, which settles the choice. Emails are left out: the `strip_emails`
  * feature hides them from some clients, and it doesn't reach error messages.
  */
-function describeAmbiguousReference(reference: string, matches: ResolvedUser[]): string {
-    const named = matches
-        .slice(0, MAX_NAMED_MATCHES)
-        .map((user) => `${quote(user.displayName)} (ID ${user.userId})`)
-        .join(', ')
-    const unnamed = matches.length - MAX_NAMED_MATCHES
-    const list = unnamed > 0 ? `${named} and ${unnamed} more` : named
+function describeAmbiguousReference(reference: string, { named, total }: AmbiguousMatch): string {
+    const people = named.map((user) => `${quote(user.displayName)} (ID ${user.userId})`).join(', ')
+    const unnamed = total - named.length
+    const list = unnamed > 0 ? `${people} and ${unnamed} more` : people
     const next =
         unnamed > 0
             ? `Retry with the ID of the one you mean, or search for them with ${ToolNames.FIND_PROJECT_COLLABORATORS}.`
             : 'Retry with the ID of the one you mean.'
-    return `${quote(reference)} matches ${matches.length} people: ${list}. ${next}`
+    return `${quote(reference)} matches ${total} people: ${list}. ${next}`
 }
 
 /**
@@ -235,7 +239,7 @@ export class UserResolver {
      */
     async resolveUser(client: TodoistApi, nameOrId: string): Promise<ResolvedUser | null> {
         const match = await this.matchUser(client, nameOrId)
-        if (Array.isArray(match)) {
+        if (match && 'named' in match) {
             // Thrown rather than resolving to nobody, so the caller can say who the
             // reference could mean instead of reporting the person as unknown.
             throw new AmbiguousUserError(describeAmbiguousReference(nameOrId.trim(), match))
@@ -316,12 +320,15 @@ export class UserResolver {
                 return cacheResult(match ? toResolvedUser(match) : unmatched)
             }
 
-            const partialMatches = findPartialMatches(allCollaborators, trimmedInput).map(
-                toResolvedUser,
-            )
-            return cacheResult(
-                partialMatches.length > 1 ? partialMatches : (partialMatches[0] ?? null),
-            )
+            const partialMatches = findPartialMatches(allCollaborators, trimmedInput)
+            if (partialMatches.length > 1) {
+                return cacheResult({
+                    named: partialMatches.slice(0, MAX_NAMED_MATCHES).map(toResolvedUser),
+                    total: partialMatches.length,
+                })
+            }
+            const [onlyMatch] = partialMatches
+            return cacheResult(onlyMatch ? toResolvedUser(onlyMatch) : null)
         } catch (_error) {
             // If we can't fetch collaborators, a name resolves to nothing rather
             // than a guess, and an ID is returned as given
