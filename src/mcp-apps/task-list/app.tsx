@@ -1,17 +1,13 @@
 import { type App as McpApp, useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { z } from 'zod'
-import { ArgsSchema } from '../../tools/find-tasks-by-date.js'
 import { ToolNames } from '../../utils/tool-names.js'
 import { Empty } from './empty'
 import { Loading } from './loading'
 import { loadRemainingPages } from './pagination'
 import { TaskList } from './task-list'
 import { getTaskListTitle } from './title'
-import type { Task } from './types'
+import type { FindTasksByDateArgs, Task } from './types'
 import styles from './task-list.module.css'
-
-type FindTasksByDateArgs = z.input<z.ZodObject<typeof ArgsSchema>>
 
 type ToolOutput = {
     tasks: Task[]

@@ -49,6 +49,12 @@ describe('getTaskListTitle', () => {
             args: null,
             title: 'Tasks for Today',
         },
+        {
+            // Tool input reaches the widget before the server validates it.
+            name: 'a malformed start date as given',
+            args: { startDate: '20-08', daysCount: 3 },
+            title: 'Tasks for 20-08',
+        },
     ])('names $name', ({ args, title }) => {
         expect(getTaskListTitle(args)).toBe(title)
     })
