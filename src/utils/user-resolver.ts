@@ -37,7 +37,7 @@ const MAX_NAMED_MATCHES = 5
 function describeAmbiguousReference(reference: string, matches: ResolvedUser[]): string {
     const named = matches
         .slice(0, MAX_NAMED_MATCHES)
-        .map((user) => `"${user.displayName.replaceAll('"', "'")}" (ID ${user.userId})`)
+        .map((user) => `${quote(user.displayName)} (ID ${user.userId})`)
         .join(', ')
     const unnamed = matches.length - MAX_NAMED_MATCHES
     const list = unnamed > 0 ? `${named} and ${unnamed} more` : named
@@ -45,7 +45,16 @@ function describeAmbiguousReference(reference: string, matches: ResolvedUser[]):
         unnamed > 0
             ? `Retry with the ID of the one you mean, or search for them with ${ToolNames.FIND_PROJECT_COLLABORATORS}.`
             : 'Retry with the ID of the one you mean.'
-    return `"${reference}" matches ${matches.length} people: ${list}. ${next}`
+    return `${quote(reference)} matches ${matches.length} people: ${list}. ${next}`
+}
+
+/**
+ * Wraps text in double quotes, turning any inside it into single quotes: one
+ * stray double quote would pair the log redactor's delimiters wrongly and leave
+ * the names between them readable.
+ */
+function quote(text: string): string {
+    return `"${text.replaceAll('"', "'")}"`
 }
 
 type CacheEntry<T> = {

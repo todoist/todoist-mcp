@@ -1,6 +1,8 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { AmbiguousUserError } from '../tool-execution-error.js'
+import { logBatchFailures } from './batch-failures.js'
+import { ToolNames } from './tool-names.js'
 import {
     BoundedTtlCache,
     getAssigneeShortNames,
@@ -505,15 +507,26 @@ describe('UserResolver', () => {
                 )
             })
 
-            it('keeps the names it quotes redactable when a name contains a double quote', async () => {
+            it('keeps every name redactable in the batch failure log, double quotes included', async () => {
                 mockCollaborators([
-                    { id: 'u1', name: 'Ann "Annie" Lee', email: 'ann@example.com' },
-                    { id: 'u2', name: 'Joanne Smith', email: 'joanne@example.com' },
+                    { id: 'u1', name: 'Ann "Annie" Lee', email: 'annie@example.com' },
+                    { id: 'u2', name: 'Ann "Anita" Kim', email: 'anita@example.com' },
+                ])
+                const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+                const error = await resolver.resolveUser(mockClient, 'Ann "').catch((e) => e)
+                logBatchFailures(ToolNames.ADD_TASKS, 1, [
+                    { item: 'task-1', error: (error as Error).message },
                 ])
 
-                await expect(resolver.resolveUser(mockClient, 'Ann')).rejects.toThrow(
-                    `"Ann" matches 2 people: "Ann 'Annie' Lee" (ID u1), "Joanne Smith" (ID u2).`,
-                )
+                expect(consoleError.mock.calls[0]?.[1]).toMatchObject({
+                    sample: [
+                        {
+                            error: '"[redacted]" matches 2 people: "[redacted]" (ID u1), "[redacted]" (ID u2). Retry with the ID of the one you mean.',
+                        },
+                    ],
+                })
+                consoleError.mockRestore()
             })
 
             it('still prefers an exact name over partial matches', async () => {
