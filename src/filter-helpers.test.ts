@@ -5,16 +5,16 @@ import {
     filterTasksByResponsibleUser,
     resolveResponsibleUser,
 } from './filter-helpers.js'
+import { AmbiguousUserError } from './tool-execution-error.js'
+import { createMockUser } from './utils/test-helpers.js'
 import { userResolver } from './utils/user-resolver.js'
 
 describe('filter helpers', () => {
     describe('resolveResponsibleUser', () => {
-        it('names the people a partial name fits rather than saying nobody was found', async () => {
+        it('passes an ambiguous partial name on rather than saying nobody was found', async () => {
             userResolver.clearCache()
             const client = {
-                getUser: vi
-                    .fn()
-                    .mockResolvedValue({ id: '999', fullName: 'Me', email: 'me@example.com' }),
+                getUser: vi.fn().mockResolvedValue(createMockUser()),
                 getProjects: vi.fn().mockResolvedValue({
                     results: [{ id: 'p1', isShared: true }],
                     nextCursor: null,
@@ -28,9 +28,8 @@ describe('filter helpers', () => {
                 }),
             } as unknown as TodoistApi
 
-            await expect(resolveResponsibleUser(client, 'Ann')).rejects.toThrow(
-                '"Ann" matches 2 people: "Joanne Smith" (ID u1), "Ann Lee" (ID u2). Retry with the ID of the one you mean.',
-            )
+            // The wording is pinned in user-resolver.test.ts.
+            await expect(resolveResponsibleUser(client, 'Ann')).rejects.toThrow(AmbiguousUserError)
         })
     })
 

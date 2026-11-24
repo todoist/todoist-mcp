@@ -1,5 +1,6 @@
 import type { Task, TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { AmbiguousUserError } from '../tool-execution-error.js'
 import { AssignmentErrorType, assignmentValidator } from '../utils/assignment-validator.js'
 import {
     answerTaskCreates,
@@ -650,6 +651,28 @@ describe('Assignment Integration Tests', () => {
                     mockTodoistApi,
                 ),
             ).rejects.toThrow('reassign operation requires responsibleUser parameter')
+        })
+
+        it('refuses a reassign from an ambiguous assignee before changing any task', async () => {
+            const message =
+                '"Ann" matches 2 people: "Joanne Smith" (ID u1), "Ann Lee" (ID u2). Retry with the ID of the one you mean.'
+            vi.mocked(userResolver).resolveUser.mockRejectedValueOnce(
+                new AmbiguousUserError(message),
+            )
+
+            await expect(
+                manageAssignments.execute(
+                    {
+                        operation: 'reassign',
+                        taskIds: ['task-123'],
+                        responsibleUser: 'jane@example.com',
+                        fromAssigneeUser: 'Ann',
+                        dryRun: false,
+                    },
+                    mockTodoistApi,
+                ),
+            ).rejects.toThrow(message)
+            expect(mockTodoistApi.updateTask).not.toHaveBeenCalled()
         })
     })
 
