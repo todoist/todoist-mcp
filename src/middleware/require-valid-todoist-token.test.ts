@@ -167,6 +167,9 @@ describe('requireValidTodoistToken', () => {
             expect(res.status).toHaveBeenCalledWith(401)
             // RFC 6750 section 3.1: no error code when the request carried no token.
             expect(res.set).toHaveBeenCalledWith('WWW-Authenticate', 'Bearer')
+            expect(res.json).toHaveBeenCalledWith({
+                error_description: 'Todoist API token is missing',
+            })
             expect(mockValidate).not.toHaveBeenCalled()
         })
     })

@@ -63,8 +63,8 @@ function cacheFor(ttlMs: number): TokenVerdictCache {
 
 /**
  * A token that was sent and refused gets RFC 6750 `invalid_token`, so the client knows to refresh
- * it or authorise again. A request with no token gets the challenge without an error code (RFC
- * 6750 section 3.1): there is nothing wrong with a token that was never sent.
+ * it or authorise again. A request with no token gets no error code, in the challenge or the body
+ * (RFC 6750 section 3.1): there is nothing wrong with a token that was never sent.
  */
 function sendUnauthorized(
     res: Response,
@@ -78,10 +78,14 @@ function sendUnauthorized(
                 resourceMetadataUrl,
             }),
         )
-        .json({
-            error: 'invalid_token',
-            error_description: 'Todoist API token is invalid or expired',
-        })
+        .json(
+            tokenSent
+                ? {
+                      error: 'invalid_token',
+                      error_description: 'Todoist API token is invalid or expired',
+                  }
+                : { error_description: 'Todoist API token is missing' },
+        )
 }
 
 /**
