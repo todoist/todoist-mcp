@@ -571,6 +571,19 @@ export class ProjectAccessError extends Error {
 }
 
 /**
+ * A reference to a person that fits more than one of them. The message names
+ * who it could mean and how to pick one, so it is shown as written rather than
+ * truncated: cut short, it could end partway through a user ID that the model
+ * then retries with.
+ */
+export class AmbiguousUserError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'AmbiguousUserError'
+    }
+}
+
+/**
  * Compact single-line variant of {@link formatToolExecutionError} for batch
  * tools that report per-item failures. Unlike `error.message` (which for SDK
  * errors is just "HTTP 403: Forbidden"), this preserves the API error signals
@@ -601,7 +614,11 @@ type BatchItemErrorDescription = {
  * hundred times.
  */
 export function describeBatchItemError(error: unknown): BatchItemErrorDescription {
-    if (error instanceof DueStringParseError || error instanceof ProjectAccessError) {
+    if (
+        error instanceof DueStringParseError ||
+        error instanceof ProjectAccessError ||
+        error instanceof AmbiguousUserError
+    ) {
         return { summary: error.message }
     }
 
@@ -683,7 +700,11 @@ export function formatToolExecutionError(error: unknown): string {
         return error.message
     }
 
-    if (error instanceof DueStringParseError || error instanceof ProjectAccessError) {
+    if (
+        error instanceof DueStringParseError ||
+        error instanceof ProjectAccessError ||
+        error instanceof AmbiguousUserError
+    ) {
         return error.message
     }
 

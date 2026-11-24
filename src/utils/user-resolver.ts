@@ -4,6 +4,7 @@ import {
     type TodoistApi,
     type WorkspaceProject,
 } from '@todoist/sdk'
+import { AmbiguousUserError } from '../tool-execution-error.js'
 import { fetchAllPages } from '../tool-helpers.js'
 import { ToolNames } from './tool-names.js'
 
@@ -27,18 +28,6 @@ const MAX_USER_RESOLUTION_CACHE_ENTRIES = 10_000
 const MAX_COLLABORATORS_CACHE_ENTRIES = 1_000
 // How many of the people an ambiguous reference fits its error names.
 const MAX_NAMED_MATCHES = 5
-
-/**
- * A partial name or email that fits more than one person. Thrown rather than
- * resolving to nobody, so the caller can say who the reference could mean
- * instead of reporting the person as unknown.
- */
-export class AmbiguousUserError extends Error {
-    constructor(reference: string, matches: ResolvedUser[]) {
-        super(describeAmbiguousReference(reference, matches))
-        this.name = 'AmbiguousUserError'
-    }
-}
 
 /**
  * Names each person in double quotes, which the batch failure log redacts, and
@@ -238,7 +227,9 @@ export class UserResolver {
     async resolveUser(client: TodoistApi, nameOrId: string): Promise<ResolvedUser | null> {
         const match = await this.matchUser(client, nameOrId)
         if (Array.isArray(match)) {
-            throw new AmbiguousUserError(nameOrId.trim(), match)
+            // Thrown rather than resolving to nobody, so the caller can say who the
+            // reference could mean instead of reporting the person as unknown.
+            throw new AmbiguousUserError(describeAmbiguousReference(nameOrId.trim(), match))
         }
         return match
     }
@@ -643,7 +634,9 @@ export async function resolveUserRefs(client: TodoistApi, refs: string[]): Promi
                 `Could not find user(s): ${names}. Make sure they are collaborators on a shared project.`,
             )
         }
-        throw new Error(problems.join(' '))
+        // An ambiguous reference's candidates must reach the caller in full.
+        const ErrorType = ambiguous.length > 0 ? AmbiguousUserError : Error
+        throw new ErrorType(problems.join(' '))
     }
 
     return resolved

@@ -1,9 +1,9 @@
 import type { GetTasksArgs, MoveTaskArgs, Task, TodoistApi, UpdateTaskArgs } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
+import { AmbiguousUserError, formatBatchItemError } from '../tool-execution-error.js'
 import { isInboxProjectId, mapTask } from '../tool-helpers.js'
-import { assignmentValidator } from '../utils/assignment-validator.js'
+import { AssignmentErrorType, assignmentValidator } from '../utils/assignment-validator.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
 import { getMoveLimiter, getWriteLimiter } from '../utils/concurrency.js'
 import { BatchLimits, DisplayLimits } from '../utils/constants.js'
@@ -841,7 +841,12 @@ async function resolveAssigneeId(
     if (!validation.isValid) {
         const errorMsg = validation.error?.message || 'Assignment validation failed'
         const suggestions = validation.error?.suggestions?.join('. ') || ''
-        throw new Error(`Task ${id}: ${errorMsg}${suggestions ? `. ${suggestions}` : ''}`)
+        // An ambiguous assignee keeps its type, so the people it could mean are shown in full.
+        const ErrorType =
+            validation.error?.type === AssignmentErrorType.USER_AMBIGUOUS
+                ? AmbiguousUserError
+                : Error
+        throw new ErrorType(`Task ${id}: ${errorMsg}${suggestions ? `. ${suggestions}` : ''}`)
     }
 
     return validation.resolvedUser?.userId

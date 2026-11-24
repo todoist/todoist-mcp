@@ -1,12 +1,23 @@
 import z from 'zod'
 import {
+    AmbiguousUserError,
     DueStringParseError,
     formatBatchItemError,
     formatDueStringParseError,
     formatToolExecutionError,
 } from './tool-execution-error.js'
 
+// Longer than the 220 characters a generic error is cut to.
+const AMBIGUOUS_USER_MESSAGE =
+    '"Smith" matches 7 people: "Ada Smith" (ID 6Jf8VQXxpwv56VQ1), "Bo Smith" (ID 6Jf8VQXxpwv56VQ2), "Cy Smith" (ID 6Jf8VQXxpwv56VQ3), "Di Smith" (ID 6Jf8VQXxpwv56VQ4), "Ed Smith" (ID 6Jf8VQXxpwv56VQ5) and 2 more. Retry with the ID of the one you mean, or search for them with find-project-collaborators.'
+
 describe('formatToolExecutionError', () => {
+    it('shows the people an ambiguous user reference fits in full', () => {
+        expect(formatToolExecutionError(new AmbiguousUserError(AMBIGUOUS_USER_MESSAGE))).toBe(
+            AMBIGUOUS_USER_MESSAGE,
+        )
+    })
+
     it('formats Todoist API errors with actionable details', () => {
         const output = formatToolExecutionError({
             httpStatusCode: 400,
@@ -268,6 +279,12 @@ describe('formatToolExecutionError', () => {
     })
 
     describe('formatBatchItemError', () => {
+        it('shows the people an ambiguous user reference fits in full', () => {
+            expect(formatBatchItemError(new AmbiguousUserError(AMBIGUOUS_USER_MESSAGE))).toBe(
+                AMBIGUOUS_USER_MESSAGE,
+            )
+        })
+
         it.each([
             {
                 tag: 'MAX_ITEMS_LIMIT_REACHED',

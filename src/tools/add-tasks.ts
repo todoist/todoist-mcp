@@ -3,12 +3,17 @@ import { createCommand, type SyncCommand, type Task, type TodoistApi } from '@to
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import {
+    AmbiguousUserError,
     DueStringParseError,
     formatBatchItemError,
     formatDueStringParseError,
 } from '../tool-execution-error.js'
 import { createProjectLookup, isInboxProjectId, mapTask, type Project } from '../tool-helpers.js'
-import { assignmentValidator, type ValidationResult } from '../utils/assignment-validator.js'
+import {
+    AssignmentErrorType,
+    assignmentValidator,
+    type ValidationResult,
+} from '../utils/assignment-validator.js'
 import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { BatchLimits } from '../utils/constants.js'
 import { DURATION_INPUT_DESCRIPTION, parseItemDuration } from '../utils/duration-parser.js'
@@ -328,7 +333,14 @@ async function resolveAssignee(
     if (!validation.isValid) {
         const errorMsg = validation.error?.message || 'Assignment validation failed'
         const suggestions = validation.error?.suggestions?.join('. ') || ''
-        throw new Error(`Task "${content}": ${errorMsg}${suggestions ? `. ${suggestions}` : ''}`)
+        // An ambiguous assignee keeps its type, so the people it could mean are shown in full.
+        const ErrorType =
+            validation.error?.type === AssignmentErrorType.USER_AMBIGUOUS
+                ? AmbiguousUserError
+                : Error
+        throw new ErrorType(
+            `Task "${content}": ${errorMsg}${suggestions ? `. ${suggestions}` : ''}`,
+        )
     }
 
     return validation.resolvedUser?.userId

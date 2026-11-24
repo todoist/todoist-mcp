@@ -34,6 +34,10 @@ vi.mock('../utils/user-resolver.js', () => ({
     },
 }))
 
+// Longer than the 220 characters a generic error is cut to.
+const AMBIGUOUS_USER_MESSAGE =
+    '"Smith" matches 7 people: "Ada Smith" (ID 6Jf8VQXxpwv56VQ1), "Bo Smith" (ID 6Jf8VQXxpwv56VQ2), "Cy Smith" (ID 6Jf8VQXxpwv56VQ3), "Di Smith" (ID 6Jf8VQXxpwv56VQ4), "Ed Smith" (ID 6Jf8VQXxpwv56VQ5) and 2 more. Retry with the ID of the one you mean, or search for them with find-project-collaborators.'
+
 describe('Assignment Integration Tests', () => {
     let mockTodoistApi: Mocked<TodoistApi>
     // Answers each task add-tasks creates through Sync, like a create endpoint would
@@ -172,6 +176,31 @@ describe('Assignment Integration Tests', () => {
             expect(createTask).not.toHaveBeenCalled()
         })
 
+        it('reports every person an ambiguous assignee fits, uncut', async () => {
+            vi.mocked(assignmentValidator).validateTaskCreationAssignment.mockResolvedValueOnce({
+                isValid: false,
+                projectId: 'project-123',
+                error: {
+                    type: AssignmentErrorType.USER_AMBIGUOUS,
+                    message: AMBIGUOUS_USER_MESSAGE,
+                },
+            })
+
+            const result = await addTasks.execute(
+                {
+                    tasks: [
+                        { content: 'Plan', projectId: 'project-123', responsibleUser: 'Smith' },
+                    ],
+                },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'Plan', error: `Task "Plan": ${AMBIGUOUS_USER_MESSAGE}` },
+            ])
+            expect(createTask).not.toHaveBeenCalled()
+        })
+
         it('should handle assignment for subtasks', async () => {
             mockTodoistApi.getTask.mockResolvedValueOnce({
                 ...mockTask,
@@ -280,6 +309,28 @@ describe('Assignment Integration Tests', () => {
             expect(structuredContent.failures[0]?.error).toContain(
                 'Task task-123: User cannot be assigned to this project',
             )
+            expect(mockTodoistApi.updateTask).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('Task Update with an ambiguous assignee', () => {
+        it('reports every person the assignee fits, uncut', async () => {
+            vi.mocked(assignmentValidator).validateTaskUpdateAssignment.mockResolvedValueOnce({
+                isValid: false,
+                error: {
+                    type: AssignmentErrorType.USER_AMBIGUOUS,
+                    message: AMBIGUOUS_USER_MESSAGE,
+                },
+            })
+
+            const result = await updateTasks.execute(
+                { tasks: [{ id: 'task-123', responsibleUser: 'Smith' }] },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'task-123', error: `Task task-123: ${AMBIGUOUS_USER_MESSAGE}` },
+            ])
             expect(mockTodoistApi.updateTask).not.toHaveBeenCalled()
         })
     })

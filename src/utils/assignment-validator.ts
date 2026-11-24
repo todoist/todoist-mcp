@@ -1,6 +1,7 @@
 import type { TodoistApi } from '@todoist/sdk'
+import { AmbiguousUserError } from '../tool-execution-error.js'
 import { type Project } from '../tool-helpers.js'
-import { AmbiguousUserError, type ResolvedUser, userResolver } from './user-resolver.js'
+import { type ResolvedUser, userResolver } from './user-resolver.js'
 
 export const AssignmentErrorType = {
     USER_NOT_FOUND: 'USER_NOT_FOUND',

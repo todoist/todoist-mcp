@@ -1,6 +1,7 @@
 import type { Comment, Task, TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { z } from 'zod'
+import { AmbiguousUserError } from '../tool-execution-error.js'
 import { ApiLimits } from '../utils/constants.js'
 import { createMockTask, createMockUser } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
@@ -420,6 +421,21 @@ describe(`${ADD_COMMENTS} tool`, () => {
 
             expect(result.structuredContent.successCount).toBe(1)
             expect(result.textContent).toContain('Added 1 task comment. Notified: 111')
+        })
+
+        it('reports every person an ambiguous recipient fits, uncut', async () => {
+            // Longer than the 220 characters a generic error is cut to.
+            const message =
+                '"Smith" matches 7 people: "Ada Smith" (ID 6Jf8VQXxpwv56VQ1), "Bo Smith" (ID 6Jf8VQXxpwv56VQ2), "Cy Smith" (ID 6Jf8VQXxpwv56VQ3), "Di Smith" (ID 6Jf8VQXxpwv56VQ4), "Ed Smith" (ID 6Jf8VQXxpwv56VQ5) and 2 more. Retry with the ID of the one you mean, or search for them with find-project-collaborators.'
+            mockResolveUserRefs.mockRejectedValue(new AmbiguousUserError(message))
+
+            const result = await addComments.execute(
+                { comments: [{ taskId: 'task456', content: 'Ping', notifyUsers: ['Smith'] }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addComment).not.toHaveBeenCalled()
+            expect(result.structuredContent.failures).toEqual([{ item: 'Ping', error: message }])
         })
 
         it('should report an unresolvable user as a failure without posting', async () => {

@@ -1,5 +1,6 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { AmbiguousUserError } from '../tool-execution-error.js'
 import {
     BoundedTtlCache,
     getAssigneeShortNames,
@@ -600,9 +601,13 @@ describe('resolveUserRefs', () => {
             nextCursor: null,
         } as unknown as Awaited<ReturnType<TodoistApi['getProjectCollaborators']>>)
 
-        await expect(resolveUserRefs(mockClient, ['Ana', 'Ghost'])).rejects.toThrow(
+        const lookup = resolveUserRefs(mockClient, ['Ana', 'Ghost'])
+
+        await expect(lookup).rejects.toThrow(
             'Could not find user(s): "Ghost". Make sure they are collaborators on a shared project. "Ana" matches 2 people: "Ana Lovelace" (ID 111), "Ana Bell" (ID 333). Retry with the ID of the one you mean.',
         )
+        // Its type keeps batch tools from cutting the candidates short.
+        await expect(lookup).rejects.toBeInstanceOf(AmbiguousUserError)
     })
 
     it('resolves nothing for an empty list', async () => {
