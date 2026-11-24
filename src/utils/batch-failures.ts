@@ -62,6 +62,11 @@ const REDACTED = '[redacted]'
  */
 const QUOTED_TEXT = /"[^"]*"/g
 
+/** `text` with everything it quotes redacted, for a log line. */
+export function redactQuotedText(text: string): string {
+    return text.replace(QUOTED_TEXT, `"${REDACTED}"`)
+}
+
 /**
  * Records the items a batch tool could not act on.
  *
@@ -98,7 +103,7 @@ export function logBatchFailures(
         sample: sample.map((failure) => ({
             ...failure,
             item: options.redactItems ? REDACTED : failure.item,
-            error: failure.error.replace(QUOTED_TEXT, `"${REDACTED}"`),
+            error: redactQuotedText(failure.error),
         })),
     })
 }

@@ -4,6 +4,7 @@ import type { TodoistApi } from '@todoist/sdk'
 import type { AnyTodoistTool } from './todoist-tool.js'
 import { formatToolExecutionError } from './tool-execution-error.js'
 import { runWithUsageTrackingContext } from './usage-tracking.js'
+import { redactQuotedText } from './utils/batch-failures.js'
 import { executeWithRetry } from './utils/retry.js'
 import { ToolNames } from './utils/tool-names.js'
 
@@ -74,6 +75,26 @@ function redactArgs(args: unknown): unknown {
             REDACTED_ARG_KEYS.has(key) && value !== undefined ? [key, '[redacted]'] : [key, value],
         ),
     )
+}
+
+/**
+ * The error as logged, with quoted text redacted from its message, its stack and
+ * its cause. Messages quote what the caller asked for and the people a lookup
+ * matched, which must not reach server logs; batch failures are logged the same
+ * way. The error's own fields, such as an HTTP status, are kept.
+ */
+function redactLoggedError(error: unknown): unknown {
+    if (!(error instanceof Error)) {
+        return error
+    }
+
+    const cause = error.cause === undefined ? undefined : redactLoggedError(error.cause)
+    const redacted = new Error('', cause === undefined ? undefined : { cause })
+    Object.assign(redacted, error)
+    redacted.name = error.name
+    redacted.message = redactQuotedText(error.message)
+    redacted.stack = error.stack && redactQuotedText(error.stack)
+    return redacted
 }
 
 /**
@@ -173,7 +194,10 @@ function registerTools({
             }
         },
         onError: ({ tool, args, error }) => {
-            console.error(`Error executing tool ${tool.name}:`, { args: redactArgs(args), error })
+            console.error(`Error executing tool ${tool.name}:`, {
+                args: redactArgs(args),
+                error: redactLoggedError(error),
+            })
         },
     })
 

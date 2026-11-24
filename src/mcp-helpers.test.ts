@@ -1,3 +1,4 @@
+import { inspect } from 'node:util'
 import type { ContentBlock, StandardSchemaWithJSON } from '@modelcontextprotocol/server'
 import type { TodoistApi } from '@todoist/sdk'
 import { afterEach, describe, expect, it, type Mocked, vi } from 'vitest'
@@ -333,6 +334,53 @@ describe('registerTools error path', () => {
         expect(loggedArgs.args.file).toBe('[redacted]')
         expect(loggedArgs.args.projectId).toBe('123')
         expect(JSON.stringify(loggedArgs)).not.toContain('Private plans')
+
+        consoleError.mockRestore()
+    })
+
+    it('keeps quoted text in a thrown error out of error logs', async () => {
+        const { mock, server, client } = captureRegisterToolMock()
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const thrown = Object.assign(
+            new Error('"Ann" matches 2 people: "Joanne Smith" (ID u1), "Ann Lee" (ID u2).', {
+                cause: new Error('Lookup of "Ann" failed'),
+            }),
+            { httpStatusCode: 409 },
+        )
+
+        registerTools({
+            tools: [
+                buildToolFixture({
+                    outputSchema: {},
+                    execute: async () => {
+                        throw thrown
+                    },
+                }),
+            ],
+            server,
+            client,
+        })
+
+        const callback = mock.mock.calls[0]?.[2] as (
+            args: Record<string, unknown>,
+            context: unknown,
+        ) => Promise<unknown>
+
+        await callback({ responsibleUser: 'Ann' }, {})
+
+        const logged = consoleError.mock.calls[0]?.[1] as { error: Error }
+        expect(logged.error).toMatchObject({
+            message: '"[redacted]" matches 2 people: "[redacted]" (ID u1), "[redacted]" (ID u2).',
+            httpStatusCode: 409,
+            cause: { message: 'Lookup of "[redacted]" failed' },
+        })
+        // The stack is the thrown error's own, so it still points at where it was thrown.
+        const [, throwSite] = thrown.stack?.split('\n') ?? []
+        expect(logged.error.stack?.split('\n').slice(0, 2)).toEqual([
+            'Error: "[redacted]" matches 2 people: "[redacted]" (ID u1), "[redacted]" (ID u2).',
+            throwSite,
+        ])
+        expect(inspect(consoleError.mock.calls[0])).not.toMatch(/Joanne Smith|Ann Lee|"Ann"/)
 
         consoleError.mockRestore()
     })
