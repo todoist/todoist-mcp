@@ -306,7 +306,8 @@ describe('requireValidTodoistToken', () => {
             return new TokenValidationError(429, { retryAfterSeconds })
         }
 
-        it('returns 429 with the Retry-After the Todoist API sent', async () => {
+        it('returns 429 with the Retry-After the Todoist API sent, and logs it', async () => {
+            const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
             mockValidate.mockRejectedValue(rateLimited(30))
             const middleware = requireValidTodoistToken({ type: 'static', apiKey: 'key' })
             const res = createMockRes()
@@ -319,9 +320,14 @@ describe('requireValidTodoistToken', () => {
             expect(res.json).toHaveBeenCalledWith({
                 error_description: 'Todoist API rate limit reached, retry later',
             })
+            expect(consoleSpy).toHaveBeenCalledWith(
+                '[Token validation] Todoist API rate limit reached, answering 429:',
+                expect.any(TokenValidationError),
+            )
         })
 
         it('asks the client to wait 60 seconds when the Todoist API sent no Retry-After', async () => {
+            vi.spyOn(console, 'warn').mockImplementation(() => {})
             mockValidate.mockRejectedValue(rateLimited())
             const middleware = requireValidTodoistToken({ type: 'static', apiKey: 'key' })
             const res = createMockRes()
@@ -333,6 +339,7 @@ describe('requireValidTodoistToken', () => {
         })
 
         it('is not cached, so the next request checks the token again', async () => {
+            vi.spyOn(console, 'warn').mockImplementation(() => {})
             mockValidate.mockRejectedValueOnce(rateLimited()).mockResolvedValueOnce('valid')
             const middleware = requireValidTodoistToken({ type: 'static', apiKey: 'key' })
 
@@ -360,6 +367,19 @@ describe('requireValidTodoistToken', () => {
                 '[Token validation] Validation failed, proceeding:',
                 expect.any(Error),
             )
+        })
+
+        it('fails open on a 5xx from the token check, without a 429', async () => {
+            vi.spyOn(console, 'warn').mockImplementation(() => {})
+            mockValidate.mockRejectedValue(new TokenValidationError(503, { retryAfterSeconds: 30 }))
+            const middleware = requireValidTodoistToken({ type: 'static', apiKey: 'key' })
+            const res = createMockRes()
+
+            await middleware({} as Request, res, next)
+
+            expect(next).toHaveBeenCalledOnce()
+            expect(res.status).not.toHaveBeenCalled()
+            expect(res.set).not.toHaveBeenCalled()
         })
     })
 })

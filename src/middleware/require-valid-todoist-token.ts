@@ -165,6 +165,10 @@ function requireValidTodoistToken(options: RequireValidTodoistTokenOptions): Req
         } catch (error) {
             const rateLimit = getValidationRateLimit(error)
             if (rateLimit) {
+                console.warn(
+                    '[Token validation] Todoist API rate limit reached, answering 429:',
+                    error,
+                )
                 sendRateLimited(res, rateLimit.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS)
                 return
             }
