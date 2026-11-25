@@ -6,9 +6,10 @@ import {
     TodoistSyncError,
 } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { type CreatedItem, UnconfirmedCreateError } from '../tool-execution-error.js'
 import { createLimiter } from './concurrency.js'
 import { settleSyncCommands } from './sync-commands.js'
-import { allApplied } from './test-helpers.js'
+import { allApplied, createApiError } from './test-helpers.js'
 
 const mockTodoistApi = {
     sync: vi.fn(),
@@ -100,6 +101,55 @@ describe('settleSyncCommands', () => {
             { status: 'rejected', reason: requestError },
         ])
         expect(result.tempIdMapping).toEqual({})
+    })
+
+    describe('when the commands create items', () => {
+        const created: CreatedItem = { noun: 'filter', findWith: 'find-filters' }
+
+        async function settleAfterRetries() {
+            vi.useFakeTimers()
+            try {
+                const settling = settleSyncCommands(mockTodoistApi, createCommands(), { created })
+                await vi.runAllTimersAsync()
+                const { outcomes } = await settling
+                return outcomes.map((outcome) =>
+                    outcome.status === 'rejected' ? outcome.reason : undefined,
+                )
+            } finally {
+                vi.useRealTimers()
+            }
+        }
+
+        it('says each item may exist when an earlier attempt may have applied the commands', async () => {
+            // A 504 can come after Todoist applied the commands; the 503s that follow only
+            // say the retries were turned away, not that the first attempt did nothing.
+            const lastError = createApiError({ status: 503, error: 'Service Unavailable' })
+            mockTodoistApi.sync
+                .mockRejectedValueOnce(createApiError({ status: 504, error: 'Gateway Timeout' }))
+                .mockRejectedValue(lastError)
+
+            const reasons = await settleAfterRetries()
+
+            expect(mockTodoistApi.sync).toHaveBeenCalledTimes(3)
+            expect(reasons).toEqual([
+                expect.any(UnconfirmedCreateError),
+                expect.any(UnconfirmedCreateError),
+            ])
+            expect(reasons.map((reason: UnconfirmedCreateError) => reason.cause)).toEqual([
+                lastError,
+                lastError,
+            ])
+        })
+
+        it('reports the error as it is when every attempt was turned away', async () => {
+            const turnedAway = createApiError({ status: 503, error: 'Service Unavailable' })
+            mockTodoistApi.sync.mockRejectedValue(turnedAway)
+
+            const reasons = await settleAfterRetries()
+
+            expect(mockTodoistApi.sync).toHaveBeenCalledTimes(3)
+            expect(reasons).toEqual([turnedAway, turnedAway])
+        })
     })
 
     it('holds no limiter slot while waiting to retry, so other requests can go', async () => {

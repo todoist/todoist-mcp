@@ -168,7 +168,6 @@ async function executeCreateWithRetry<T>(
 export {
     executeCreateWithRetry,
     executeWithRetry,
-    explainFailedCreate,
     extractHttpStatusCode,
     getRetryDelay,
     isTransientError,

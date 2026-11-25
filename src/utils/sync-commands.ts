@@ -5,9 +5,9 @@ import {
     TodoistRequestError,
     TodoistSyncError,
 } from '@todoist/sdk'
-import type { CreatedItem } from '../tool-execution-error.js'
+import { type CreatedItem, UnconfirmedCreateError } from '../tool-execution-error.js'
 import type { Limiter } from './concurrency.js'
-import { executeWithRetry, explainFailedCreate } from './retry.js'
+import { executeWithRetry, mayHaveCreated } from './retry.js'
 
 type SyncCommandResults = {
     /** One entry per command, in the order they were sent. */
@@ -39,9 +39,9 @@ const APPLIED: PromiseFulfilledResult<void> = { status: 'fulfilled', value: unde
  * waiting to retry holds none.
  *
  * Pass `created` when the commands create items. If the request still fails after
- * its retries in a way that may have applied them, each command's failure says the
- * item may have been saved and where to check: calling the tool again sends new
- * commands, which Todoist cannot recognise as repeats.
+ * its retries, and any attempt failed in a way that may have applied them, each
+ * command's failure says the item may have been saved and where to check: calling
+ * the tool again sends new commands, which Todoist cannot recognise as repeats.
  */
 export async function settleSyncCommands(
     client: TodoistApi,
@@ -50,15 +50,27 @@ export async function settleSyncCommands(
 ): Promise<SyncCommandResults> {
     let syncStatus: NonNullable<SyncResponse['syncStatus']>
     let tempIdMapping: Record<string, string>
+    // Only the last attempt's error is thrown, and a 503 that turned a retry away
+    // says nothing about an earlier 504 that may have applied the commands.
+    let mayHaveApplied = false
+    async function send() {
+        try {
+            return await client.sync({ commands })
+        } catch (error) {
+            mayHaveApplied ||= !(error instanceof TodoistSyncError) && mayHaveCreated(error)
+            throw error
+        }
+    }
 
     try {
-        const response = await executeWithRetry(() => limit(() => client.sync({ commands })))
+        const response = await executeWithRetry(() => limit(send))
         syncStatus = response.syncStatus ?? {}
         tempIdMapping = response.tempIdMapping ?? {}
     } catch (error) {
         if (!(error instanceof TodoistSyncError)) {
             // The request itself failed, so Todoist reported no command as applied.
-            const reason = created ? explainFailedCreate(error, created) : error
+            const reason =
+                created && mayHaveApplied ? new UnconfirmedCreateError(error, created) : error
             return {
                 outcomes: commands.map(() => ({ status: 'rejected', reason })),
                 tempIdMapping: {},
