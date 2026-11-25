@@ -1,3 +1,4 @@
+import { TokenValidationError } from '@todoist/mcp-core/host'
 import type { Request, Response } from 'express'
 import { type Mock, afterEach, beforeEach, vi } from 'vitest'
 
@@ -297,6 +298,49 @@ describe('requireValidTodoistToken', () => {
 
             await call('token-0')
             expect(mockValidate).toHaveBeenCalledExactlyOnceWith('token-0', undefined)
+        })
+    })
+
+    describe('a rate-limited token check', () => {
+        function rateLimited(retryAfterSeconds?: number): TokenValidationError {
+            return new TokenValidationError(429, { retryAfterSeconds })
+        }
+
+        it('returns 429 with the Retry-After the Todoist API sent', async () => {
+            mockValidate.mockRejectedValue(rateLimited(30))
+            const middleware = requireValidTodoistToken({ type: 'static', apiKey: 'key' })
+            const res = createMockRes()
+
+            await middleware({} as Request, res, next)
+
+            expect(next).not.toHaveBeenCalled()
+            expect(res.status).toHaveBeenCalledWith(429)
+            expect(res.set).toHaveBeenCalledWith('Retry-After', '30')
+            expect(res.json).toHaveBeenCalledWith({
+                error_description: 'Todoist API rate limit reached, retry later',
+            })
+        })
+
+        it('asks the client to wait 60 seconds when the Todoist API sent no Retry-After', async () => {
+            mockValidate.mockRejectedValue(rateLimited())
+            const middleware = requireValidTodoistToken({ type: 'static', apiKey: 'key' })
+            const res = createMockRes()
+
+            await middleware({} as Request, res, next)
+
+            expect(res.status).toHaveBeenCalledWith(429)
+            expect(res.set).toHaveBeenCalledWith('Retry-After', '60')
+        })
+
+        it('is not cached, so the next request checks the token again', async () => {
+            mockValidate.mockRejectedValueOnce(rateLimited()).mockResolvedValueOnce('valid')
+            const middleware = requireValidTodoistToken({ type: 'static', apiKey: 'key' })
+
+            await middleware({} as Request, createMockRes(), next)
+            await middleware({} as Request, createMockRes(), next)
+
+            expect(mockValidate).toHaveBeenCalledTimes(2)
+            expect(next).toHaveBeenCalledOnce()
         })
     })
 

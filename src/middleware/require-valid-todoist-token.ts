@@ -1,6 +1,7 @@
 import {
     buildBearerChallenge,
     createTokenVerdictCache,
+    getValidationRateLimit,
     type TokenValidationResult,
     type TokenVerdictCache,
 } from '@todoist/mcp-core/host'
@@ -40,6 +41,8 @@ type RequireValidTodoistTokenOptions = TokenSource & {
 const DEFAULT_STATIC_TTL_MS = 300_000 // 5 minutes
 const DEFAULT_DYNAMIC_TTL_MS = 120_000 // 2 minutes
 const MAX_CACHE_SIZE = 10_000
+/** The wait sent with a 429 when the Todoist API's own 429 carried no `Retry-After`, as it does not. */
+const DEFAULT_RETRY_AFTER_SECONDS = 60
 
 /**
  * One verdict cache per TTL, shared by every middleware with that TTL, so the number of caches
@@ -104,6 +107,16 @@ function sendForbidden(res: Response, resourceMetadataUrl?: string): void {
         })
 }
 
+/**
+ * The Todoist API is rate-limiting the token's user. That is no verdict on the token, so nothing is
+ * cached, and the request is not let through either: the same limit would refuse its tool calls.
+ */
+function sendRateLimited(res: Response, retryAfterSeconds: number): void {
+    res.status(429)
+        .set('Retry-After', String(retryAfterSeconds))
+        .json({ error_description: 'Todoist API rate limit reached, retry later' })
+}
+
 function respond(
     result: TokenValidationResult,
     res: Response,
@@ -123,8 +136,9 @@ function respond(
  * Express middleware that validates the Todoist API token before MCP processing.
  *
  * Returns HTTP 401 with an `invalid_token` challenge if the token is refused,
- * allowing MCP clients to trigger OAuth token refresh, and 403 with an
- * `insufficient_scope` challenge if it lacks a scope the tools need.
+ * allowing MCP clients to trigger OAuth token refresh, 403 with an
+ * `insufficient_scope` challenge if it lacks a scope the tools need, and 429
+ * with `Retry-After` if the Todoist API is rate-limiting the token's user.
  */
 function requireValidTodoistToken(options: RequireValidTodoistTokenOptions): RequestHandler {
     const defaultTtl = options.type === 'static' ? DEFAULT_STATIC_TTL_MS : DEFAULT_DYNAMIC_TTL_MS
@@ -149,7 +163,12 @@ function requireValidTodoistToken(options: RequireValidTodoistTokenOptions): Req
         try {
             result = await validateTodoistToken(apiKey, options.baseUrl)
         } catch (error) {
-            // Fail open on any error, transient or not — don't block all requests
+            const rateLimit = getValidationRateLimit(error)
+            if (rateLimit) {
+                sendRateLimited(res, rateLimit.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS)
+                return
+            }
+            // Fail open on any other error, transient or not — don't block all requests
             // during a Todoist API blip. Tool calls will fail with descriptive errors.
             console.warn('[Token validation] Validation failed, proceeding:', error)
             next()
