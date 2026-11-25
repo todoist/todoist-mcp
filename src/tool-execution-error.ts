@@ -1,4 +1,5 @@
 import { ZodError } from 'zod'
+import type { ToolName } from './utils/tool-names.js'
 
 type ApiErrorInfo = {
     statusCode?: number
@@ -583,6 +584,29 @@ export class AmbiguousUserError extends Error {
     }
 }
 
+/** What a create makes, and the tool that lists them. */
+export type CreatedItem = {
+    /** e.g. "project". */
+    noun: string
+    findWith: ToolName
+}
+
+/**
+ * A create that failed after it may have reached Todoist, so the item may have
+ * been saved anyway. Its failure keeps the cause's status and says where to
+ * check: the next call would send a new request that Todoist cannot recognise
+ * as a repeat, so creating the item again without looking can make a duplicate.
+ */
+export class UnconfirmedCreateError extends Error {
+    readonly hint: string
+
+    constructor(cause: unknown, { noun, findWith }: CreatedItem) {
+        super(cause instanceof Error ? cause.message : String(cause), { cause })
+        this.name = 'UnconfirmedCreateError'
+        this.hint = `The ${noun} may have been saved anyway. Check with ${findWith} before adding it again.`
+    }
+}
+
 /**
  * Compact single-line variant of {@link formatToolExecutionError} for batch
  * tools that report per-item failures. Unlike `error.message` (which for SDK
@@ -614,6 +638,11 @@ type BatchItemErrorDescription = {
  * hundred times.
  */
 export function describeBatchItemError(error: unknown): BatchItemErrorDescription {
+    if (error instanceof UnconfirmedCreateError) {
+        const cause = describeBatchItemError(error.cause)
+        return { ...cause, summary: `${cause.summary}. ${error.hint}` }
+    }
+
     if (
         error instanceof DueStringParseError ||
         error instanceof ProjectAccessError ||

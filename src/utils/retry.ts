@@ -1,3 +1,5 @@
+import { type CreatedItem, UnconfirmedCreateError } from '../tool-execution-error.js'
+
 const DEFAULT_MAX_RETRIES = 2
 const DEFAULT_BASE_DELAY_MS = 500
 const DEFAULT_MAX_DELAY_MS = 2000
@@ -122,22 +124,55 @@ async function executeWithRetry<T>(fn: () => Promise<T>, config: RetryConfig = {
 }
 
 /**
+ * Whether a failed create may still have saved the item. Only a 4xx or a 503 (the
+ * server turning the request away) rules it out: a 500, 502 or 504, or a connection
+ * lost before the response, can come after the item was saved.
+ */
+function mayHaveCreated(error: unknown): boolean {
+    if (error instanceof UnconfirmedCreateError) {
+        return true
+    }
+    const statusCode = extractHttpStatusCode(error)
+    return statusCode === undefined || (statusCode >= 500 && statusCode !== 503)
+}
+
+/**
+ * The error a failed create reports: an {@link UnconfirmedCreateError} when the
+ * item may have been saved anyway, so its failure says to check before adding it
+ * again, and otherwise the error as it is.
+ */
+function explainFailedCreate(error: unknown, created: CreatedItem): unknown {
+    return mayHaveCreated(error) ? new UnconfirmedCreateError(error, created) : error
+}
+
+/**
  * {@link executeWithRetry} for a request that creates something, retrying only the
- * statuses that cannot mean it was already created.
+ * statuses that cannot mean it was already created. A failure that may have saved
+ * the item anyway is reported through {@link explainFailedCreate}.
  */
 async function executeCreateWithRetry<T>(
     fn: () => Promise<T>,
+    created: CreatedItem,
     config: Omit<RetryConfig, 'retryableStatusCodes'> = {},
 ): Promise<T> {
-    return executeWithRetry(fn, { ...config, retryableStatusCodes: CREATE_RETRYABLE_STATUS_CODES })
+    try {
+        return await executeWithRetry(fn, {
+            ...config,
+            retryableStatusCodes: CREATE_RETRYABLE_STATUS_CODES,
+        })
+    } catch (error) {
+        throw explainFailedCreate(error, created)
+    }
 }
 
 export {
     executeCreateWithRetry,
     executeWithRetry,
+    explainFailedCreate,
     extractHttpStatusCode,
     getRetryDelay,
     isTransientError,
     MIN_RETRY_DELAY_MS,
+    mayHaveCreated,
     type RetryConfig,
 }

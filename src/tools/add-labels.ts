@@ -49,7 +49,12 @@ const addLabels = {
         // neither discards the labels that were created nor hides them behind one error.
         // A create retries only a 503: after a 502/504 the label may already exist.
         const settled = await Promise.allSettled(
-            labels.map((label) => executeCreateWithRetry(() => client.addLabel(label))),
+            labels.map((label) =>
+                executeCreateWithRetry(() => client.addLabel(label), {
+                    noun: 'label',
+                    findWith: ToolNames.FIND_LABELS,
+                }),
+            ),
         )
 
         const { succeeded, failures } = partitionSettled(labels, settled, (label) => label.name)

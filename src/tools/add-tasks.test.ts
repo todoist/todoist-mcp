@@ -647,6 +647,31 @@ describe(`${ADD_TASKS} tool`, () => {
             },
         )
 
+        it('says each task may exist when the Sync request keeps failing', async () => {
+            vi.useFakeTimers()
+            try {
+                mockTodoistApi.sync.mockRejectedValue(
+                    Object.assign(new Error('Gateway Timeout'), { httpStatusCode: 504 }),
+                )
+
+                const promise = addTasks.execute(
+                    { tasks: [{ content: 'First' }, { content: 'Second' }] },
+                    mockTodoistApi,
+                )
+                await vi.runAllTimersAsync()
+                const result = await promise
+
+                const error =
+                    'Gateway Timeout (HTTP 504). The task may have been saved anyway. Check with find-tasks before adding it again.'
+                expect(result.structuredContent.failures).toEqual([
+                    { item: 'First', error },
+                    { item: 'Second', error },
+                ])
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
         it('retries a transient 5xx failure while looking up the project', async () => {
             vi.useFakeTimers()
             try {

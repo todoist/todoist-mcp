@@ -1,6 +1,11 @@
 import type { Section, TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
-import { createMockSection, createMockUser, TEST_IDS } from '../utils/test-helpers.js'
+import {
+    createApiError,
+    createMockSection,
+    createMockUser,
+    TEST_IDS,
+} from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { addSections } from './add-sections.js'
 
@@ -236,8 +241,9 @@ describe(`${ADD_SECTIONS} tool`, () => {
 
     describe('error handling', () => {
         it('reports API errors as structured failures', async () => {
-            const apiError = new Error('API Error: Section name is required')
-            mockTodoistApi.addSection.mockRejectedValue(apiError)
+            mockTodoistApi.addSection.mockRejectedValue(
+                createApiError({ status: 400, error: 'Section name is required' }),
+            )
 
             const result = await addSections.execute(
                 { sections: [{ name: '', projectId: TEST_IDS.PROJECT_TEST }] },
@@ -245,7 +251,26 @@ describe(`${ADD_SECTIONS} tool`, () => {
             )
 
             expect(result.structuredContent.failures).toEqual([
-                expect.objectContaining({ item: '', error: 'API Error: Section name is required' }),
+                { item: '', error: 'Section name is required (HTTP 400)' },
+            ])
+        })
+
+        it('does not retry a section that failed with a 502, and says it may have been created', async () => {
+            mockTodoistApi.addSection.mockRejectedValueOnce(
+                createApiError({ status: 502, error: 'Bad Gateway' }),
+            )
+
+            const result = await addSections.execute(
+                { sections: [{ name: 'Backlog', projectId: TEST_IDS.PROJECT_TEST }] },
+                mockTodoistApi,
+            )
+
+            expect(mockTodoistApi.addSection).toHaveBeenCalledOnce()
+            expect(result.structuredContent.failures).toEqual([
+                {
+                    item: 'Backlog',
+                    error: 'Bad Gateway (HTTP 502). The section may have been saved anyway. Check with find-sections before adding it again.',
+                },
             ])
         })
 

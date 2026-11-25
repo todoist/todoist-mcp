@@ -76,7 +76,9 @@ const addFilters = {
 
         // Send commands only — combining resourceTypes + syncToken:'*' with commands
         // causes tempIdMapping to not be returned in the response.
-        const { outcomes, tempIdMapping } = await settleSyncCommands(client, commands)
+        const { outcomes, tempIdMapping } = await settleSyncCommands(client, commands, {
+            created: { noun: 'filter', findWith: ToolNames.FIND_FILTERS },
+        })
 
         // A filter counts as created only once Todoist has given it an ID.
         const created = filters.map((_, i): PromiseSettledResult<string> => {

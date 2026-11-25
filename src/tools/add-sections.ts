@@ -73,7 +73,10 @@ const addSections = {
                         user: todoistUser,
                         client: undefined,
                     })) ?? section.projectId
-                return executeCreateWithRetry(() => client.addSection({ ...section, projectId }))
+                return executeCreateWithRetry(() => client.addSection({ ...section, projectId }), {
+                    noun: 'section',
+                    findWith: ToolNames.FIND_SECTIONS,
+                })
             }),
         )
 

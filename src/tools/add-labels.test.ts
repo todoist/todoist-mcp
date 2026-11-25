@@ -2,7 +2,7 @@ import type { TodoistApi } from '@todoist/sdk'
 import { beforeEach, describe, expect, it, type Mocked, vi } from 'vitest'
 import { z } from 'zod'
 import { LabelSchema } from '../utils/output-schemas.js'
-import { createMockLabel, TEST_ERRORS } from '../utils/test-helpers.js'
+import { createApiError, createMockLabel } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { addLabels } from './add-labels.js'
 
@@ -83,7 +83,7 @@ describe(`${ADD_LABELS} tool`, () => {
         it('should keep the created labels when one in the batch fails', async () => {
             mockTodoistApi.addLabel
                 .mockResolvedValueOnce(createMockLabel({ id: 'label-1', name: 'Work' }))
-                .mockRejectedValueOnce(new Error(TEST_ERRORS.API_UNAUTHORIZED))
+                .mockRejectedValueOnce(createApiError({ status: 401, error: 'Unauthorized' }))
 
             const result = await addLabels.execute(
                 { labels: [{ name: 'Work' }, { name: 'Personal' }] },
@@ -96,25 +96,27 @@ describe(`${ADD_LABELS} tool`, () => {
             expect(structuredContent.successCount).toBe(1)
             expect(structuredContent.failureCount).toBe(1)
             expect(structuredContent.failures).toEqual([
-                { item: 'Personal', error: TEST_ERRORS.API_UNAUTHORIZED },
+                { item: 'Personal', error: 'Todoist API request failed (HTTP 401)' },
             ])
             expect(result.textContent).toContain('Added 1 label:')
             expect(result.textContent).toContain('Failed (1) - address or drop these items')
         })
 
         it('returns structured failures when every label in the batch fails', async () => {
-            mockTodoistApi.addLabel.mockRejectedValue(new Error(TEST_ERRORS.API_UNAUTHORIZED))
+            mockTodoistApi.addLabel.mockRejectedValue(
+                createApiError({ status: 401, error: 'Unauthorized' }),
+            )
 
             const result = await addLabels.execute({ labels: [{ name: 'Work' }] }, mockTodoistApi)
 
             expect(result.structuredContent.labels).toEqual([])
             expect(result.structuredContent.failures).toEqual([
-                { item: 'Work', error: TEST_ERRORS.API_UNAUTHORIZED },
+                { item: 'Work', error: 'Todoist API request failed (HTTP 401)' },
             ])
             expect(result.textContent).toContain('Added 0 labels')
         })
 
-        it('does not retry a label that failed with a 502, since it may have been created', async () => {
+        it('does not retry a label that failed with a 502, and says it may have been created', async () => {
             mockTodoistApi.addLabel.mockRejectedValueOnce(
                 Object.assign(new Error('Bad Gateway'), { httpStatusCode: 502 }),
             )
@@ -123,7 +125,10 @@ describe(`${ADD_LABELS} tool`, () => {
 
             expect(mockTodoistApi.addLabel).toHaveBeenCalledOnce()
             expect(result.structuredContent.failures).toEqual([
-                { item: 'Work', error: 'Bad Gateway (HTTP 502)' },
+                {
+                    item: 'Work',
+                    error: 'Bad Gateway (HTTP 502). The label may have been saved anyway. Check with find-labels before adding it again.',
+                },
             ])
         })
 

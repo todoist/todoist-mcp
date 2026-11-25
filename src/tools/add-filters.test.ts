@@ -1,7 +1,7 @@
 import { type Filter, type TodoistApi, TodoistSyncError } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { z } from 'zod'
-import { allApplied, TEST_ERRORS } from '../utils/test-helpers.js'
+import { allApplied, createApiError } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { addFilters } from './add-filters.js'
 
@@ -271,7 +271,9 @@ describe(`${ADD_FILTERS} tool`, () => {
 
     describe('error handling', () => {
         it('reports every filter as failed when the request itself fails', async () => {
-            mockTodoistApi.sync.mockRejectedValue(new Error(TEST_ERRORS.API_UNAUTHORIZED))
+            mockTodoistApi.sync.mockRejectedValue(
+                createApiError({ status: 401, error: 'Unauthorized' }),
+            )
 
             const result = await addFilters.execute(
                 { filters: [{ name: 'Test', query: 'today' }] },
@@ -280,9 +282,34 @@ describe(`${ADD_FILTERS} tool`, () => {
 
             expect(result.structuredContent.filters).toEqual([])
             expect(result.structuredContent.failures).toEqual([
-                { item: 'Test', error: TEST_ERRORS.API_UNAUTHORIZED },
+                { item: 'Test', error: 'Todoist API request failed (HTTP 401)' },
             ])
             expect(result.textContent).toContain('Added 0 filters')
+        })
+
+        it('says each filter may exist when the request keeps failing', async () => {
+            vi.useFakeTimers()
+            try {
+                mockTodoistApi.sync.mockRejectedValue(
+                    createApiError({ status: 504, error: 'Gateway Timeout' }),
+                )
+
+                const promise = addFilters.execute(
+                    { filters: [{ name: 'Test', query: 'today' }] },
+                    mockTodoistApi,
+                )
+                await vi.runAllTimersAsync()
+                const result = await promise
+
+                expect(result.structuredContent.failures).toEqual([
+                    {
+                        item: 'Test',
+                        error: 'Gateway Timeout (HTTP 504). The filter may have been saved anyway. Check with find-filters before adding it again.',
+                    },
+                ])
+            } finally {
+                vi.useRealTimers()
+            }
         })
 
         it('keeps the created filters when one command in the batch fails', async () => {

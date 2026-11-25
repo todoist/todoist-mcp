@@ -365,6 +365,7 @@ async function createTasks(
     const { outcomes, tempIdMapping, requestFailed } = await settleSyncCommands(
         client,
         ready.map(({ command }) => command),
+        { created: { noun: 'task', findWith: ToolNames.FIND_TASKS } },
     )
 
     const createdIds = new Map<number, string>()

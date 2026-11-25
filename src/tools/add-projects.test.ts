@@ -481,7 +481,10 @@ describe(`${ADD_PROJECTS} tool`, () => {
             })
             expect(result.structuredContent.successCount).toBe(0)
             expect(result.structuredContent.failures).toEqual([
-                { item: 'Ambiguous', error: expect.any(String) },
+                {
+                    item: 'Ambiguous',
+                    error: 'Bad Gateway (HTTP 502). The project may have been saved anyway. Check with find-projects before adding it again.',
+                },
                 { item: 'Over limit', error: expect.stringContaining('limit of 5') },
             ])
         })
@@ -1054,6 +1057,58 @@ describe(`${ADD_PROJECTS} tool`, () => {
             ])
         })
 
+        it.each([
+            {
+                failure: 'keeps answering 504',
+                error: Object.assign(new Error('Gateway Timeout'), { httpStatusCode: 504 }),
+                cause: 'Gateway Timeout (HTTP 504)',
+            },
+            {
+                failure: 'loses its connection',
+                error: new TodoistRequestError('fetch failed'),
+                cause: 'fetch failed',
+            },
+        ])(
+            'should warn that the project may exist when the Sync request $failure',
+            async ({ error, cause }) => {
+                vi.useFakeTimers()
+                try {
+                    mockTodoistApi.sync.mockRejectedValue(error)
+
+                    const promise = addProjects.execute(
+                        { projects: [{ name: 'Campaigns', folderId: TEST_IDS.FOLDER_1 }] },
+                        mockTodoistApi,
+                    )
+                    await vi.runAllTimersAsync()
+                    const result = await promise
+
+                    expect(result.structuredContent.failures).toEqual([
+                        {
+                            item: 'Campaigns',
+                            error: `${cause}. The project may have been saved anyway. Check with find-projects before adding it again.`,
+                        },
+                    ])
+                } finally {
+                    vi.useRealTimers()
+                }
+            },
+        )
+
+        it('should not warn when the Sync request was turned away', async () => {
+            mockTodoistApi.sync.mockRejectedValue(
+                createApiError({ status: 401, error: 'Invalid token' }),
+            )
+
+            const result = await addProjects.execute(
+                { projects: [{ name: 'Campaigns', folderId: TEST_IDS.FOLDER_1 }] },
+                mockTodoistApi,
+            )
+
+            expect(result.structuredContent.failures).toEqual([
+                { item: 'Campaigns', error: 'Invalid token (HTTP 401)' },
+            ])
+        })
+
         it('should say the project exists when it cannot be read back', async () => {
             mockSyncCreates()
             mockTodoistApi.getProject.mockRejectedValue(
@@ -1076,13 +1131,14 @@ describe(`${ADD_PROJECTS} tool`, () => {
 
     describe('error handling', () => {
         it('reports API errors as structured failures', async () => {
-            const apiError = new Error('API Error: Project name is required')
-            mockTodoistApi.addProject.mockRejectedValue(apiError)
+            mockTodoistApi.addProject.mockRejectedValue(
+                createApiError({ status: 400, error: 'Project name is required' }),
+            )
 
             const result = await addProjects.execute({ projects: [{ name: '' }] }, mockTodoistApi)
 
             expect(result.structuredContent.failures).toEqual([
-                expect.objectContaining({ item: '', error: 'API Error: Project name is required' }),
+                { item: '', error: 'Project name is required (HTTP 400)' },
             ])
         })
 

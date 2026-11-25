@@ -1,6 +1,7 @@
 import type { AddReminderArgs } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
+import type { CreatedItem } from '../tool-execution-error.js'
 import { countRemindersByType, mapReminder } from '../tool-helpers.js'
 import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { FailureSchema, ReminderSchema as ReminderOutputSchema } from '../utils/output-schemas.js'
@@ -19,6 +20,8 @@ import {
 import { appendFailureSummary } from '../utils/response-builders.js'
 import { executeCreateWithRetry } from '../utils/retry.js'
 import { ToolNames } from '../utils/tool-names.js'
+
+const CREATED_REMINDER: CreatedItem = { noun: 'reminder', findWith: ToolNames.FIND_REMINDERS }
 
 const RelativeReminderInputSchema = z.object({
     type: z.literal('relative'),
@@ -125,38 +128,44 @@ const addReminders = {
                 const notifyUid = recipient?.value
                 switch (reminder.type) {
                     case 'relative':
-                        return await executeCreateWithRetry(() =>
-                            client.addReminder({
-                                taskId: reminder.taskId,
-                                reminderType: 'relative',
-                                minuteOffset: reminder.minuteOffset,
-                                service: reminder.service,
-                                isUrgent: reminder.isUrgent,
-                                notifyUid,
-                            } as AddReminderArgs),
+                        return await executeCreateWithRetry(
+                            () =>
+                                client.addReminder({
+                                    taskId: reminder.taskId,
+                                    reminderType: 'relative',
+                                    minuteOffset: reminder.minuteOffset,
+                                    service: reminder.service,
+                                    isUrgent: reminder.isUrgent,
+                                    notifyUid,
+                                } as AddReminderArgs),
+                            CREATED_REMINDER,
                         )
                     case 'absolute':
-                        return await executeCreateWithRetry(() =>
-                            client.addReminder({
-                                taskId: reminder.taskId,
-                                reminderType: 'absolute',
-                                due: reminder.due,
-                                service: reminder.service,
-                                isUrgent: reminder.isUrgent,
-                                notifyUid,
-                            } as AddReminderArgs),
+                        return await executeCreateWithRetry(
+                            () =>
+                                client.addReminder({
+                                    taskId: reminder.taskId,
+                                    reminderType: 'absolute',
+                                    due: reminder.due,
+                                    service: reminder.service,
+                                    isUrgent: reminder.isUrgent,
+                                    notifyUid,
+                                } as AddReminderArgs),
+                            CREATED_REMINDER,
                         )
                     case 'location':
-                        return await executeCreateWithRetry(() =>
-                            client.addLocationReminder({
-                                taskId: reminder.taskId,
-                                name: reminder.name,
-                                locLat: reminder.locLat,
-                                locLong: reminder.locLong,
-                                locTrigger: reminder.locTrigger,
-                                radius: reminder.radius,
-                                notifyUid,
-                            }),
+                        return await executeCreateWithRetry(
+                            () =>
+                                client.addLocationReminder({
+                                    taskId: reminder.taskId,
+                                    name: reminder.name,
+                                    locLat: reminder.locLat,
+                                    locLong: reminder.locLong,
+                                    locTrigger: reminder.locTrigger,
+                                    radius: reminder.radius,
+                                    notifyUid,
+                                }),
+                            CREATED_REMINDER,
                         )
                 }
             }),

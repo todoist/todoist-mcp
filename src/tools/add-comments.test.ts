@@ -856,7 +856,7 @@ describe(`${ADD_COMMENTS} tool`, () => {
             ])
         })
 
-        it('does not retry a comment that failed with a 502, since it may have been posted', async () => {
+        it('does not retry a comment that failed with a 502, and says it may have been posted', async () => {
             mockTodoistApi.addComment.mockRejectedValueOnce(
                 Object.assign(new Error('Bad Gateway'), { httpStatusCode: 502 }),
             )
@@ -872,7 +872,10 @@ describe(`${ADD_COMMENTS} tool`, () => {
 
             expect(mockTodoistApi.addComment).toHaveBeenCalledOnce()
             expect(result.structuredContent.failures).toEqual([
-                { item: 'Maybe posted', error: 'Bad Gateway (HTTP 502)' },
+                {
+                    item: 'Maybe posted',
+                    error: 'Bad Gateway (HTTP 502). The comment may have been saved anyway. Check with find-comments before adding it again.',
+                },
             ])
         })
 

@@ -136,14 +136,16 @@ const addComments = {
                     return Promise.reject(preparation.reason)
                 }
                 const { target, uidsToNotify } = preparation.value
-                return executeCreateWithRetry(() =>
-                    client.addComment({
-                        content: comments[index]?.content,
-                        ...target,
-                        // Nobody to notify means no recipient field at all,
-                        // rather than an empty one.
-                        ...(uidsToNotify.length > 0 && { uidsToNotify }),
-                    } as AddCommentArgs),
+                return executeCreateWithRetry(
+                    () =>
+                        client.addComment({
+                            content: comments[index]?.content,
+                            ...target,
+                            // Nobody to notify means no recipient field at all,
+                            // rather than an empty one.
+                            ...(uidsToNotify.length > 0 && { uidsToNotify }),
+                        } as AddCommentArgs),
+                    { noun: 'comment', findWith: ToolNames.FIND_COMMENTS },
                 )
             }),
         )

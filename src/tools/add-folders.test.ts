@@ -107,7 +107,7 @@ describe(`${ADD_FOLDERS} tool`, () => {
         ])
     })
 
-    it('should not retry a create that may have gone through', async () => {
+    it('should not retry a create that may have gone through, and say so', async () => {
         mockTodoistApi.addFolder.mockRejectedValueOnce(
             createApiError({ status: 502, error: 'Bad Gateway' }),
         )
@@ -119,7 +119,10 @@ describe(`${ADD_FOLDERS} tool`, () => {
 
         expect(mockTodoistApi.addFolder).toHaveBeenCalledTimes(1)
         expect(result.structuredContent.failures).toEqual([
-            { item: 'Marketing', error: expect.any(String) },
+            {
+                item: 'Marketing',
+                error: 'Bad Gateway (HTTP 502). The folder may have been saved anyway. Check with find-folders before adding it again.',
+            },
         ])
     })
 

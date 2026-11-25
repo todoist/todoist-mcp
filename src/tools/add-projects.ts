@@ -12,6 +12,7 @@ import {
 } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
+import type { CreatedItem } from '../tool-execution-error.js'
 import { mapProject } from '../tool-helpers.js'
 import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { ColorSchema } from '../utils/colors.js'
@@ -23,12 +24,14 @@ import {
     type PersonalProjectCapacity,
 } from '../utils/personal-project-limit.js'
 import { appendFailureSummary } from '../utils/response-builders.js'
-import { executeCreateWithRetry, executeWithRetry, extractHttpStatusCode } from '../utils/retry.js'
+import { executeCreateWithRetry, executeWithRetry, mayHaveCreated } from '../utils/retry.js'
 import { settleSyncCommands } from '../utils/sync-commands.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { workspaceResolver } from '../utils/workspace-resolver.js'
 
-const { FIND_FOLDERS } = ToolNames
+const { FIND_FOLDERS, FIND_PROJECTS } = ToolNames
+
+const CREATED_PROJECT: CreatedItem = { noun: 'project', findWith: FIND_PROJECTS }
 
 const ProjectSchema = z.object({
     name: z.string().min(1).describe('The name of the project.'),
@@ -148,8 +151,13 @@ const addProjects = {
                 const outcome = await settle(async () => {
                     const workspaceId = await resolveWorkspaceId(workspace)
                     const createProject = () =>
-                        executeCreateWithRetry(() =>
-                            client.addProject({ ...rest, ...(workspaceId ? { workspaceId } : {}) }),
+                        executeCreateWithRetry(
+                            () =>
+                                client.addProject({
+                                    ...rest,
+                                    ...(workspaceId ? { workspaceId } : {}),
+                                }),
+                            CREATED_PROJECT,
                         )
                     return workspace
                         ? await createProject()
@@ -261,6 +269,7 @@ async function createProjectsInFolders(
     const { outcomes, tempIdMapping } = await settleSyncCommands(
         client,
         ready.map(({ command }) => command),
+        { created: CREATED_PROJECT },
     )
     const created = await Promise.all(
         ready.map(async ({ index, tempId }, position) => ({
@@ -341,16 +350,6 @@ function createPersonalProjectGate(
             }
         }
     }
-}
-
-/**
- * Whether a failed create may still have saved the project. Only a 4xx or a 503 (the
- * server turning the request away) rules it out: a 502/504 or a dropped connection
- * can arrive after the project was created.
- */
-function mayHaveCreated(error: unknown): boolean {
-    const statusCode = extractHttpStatusCode(error)
-    return statusCode === undefined || (statusCode >= 500 && statusCode !== 503)
 }
 
 function generateTextContent({

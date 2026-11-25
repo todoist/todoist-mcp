@@ -69,7 +69,10 @@ const addFolders = {
         const settled = await Promise.allSettled(
             folders.map(async ({ name, workspace }) => {
                 const workspaceId = await resolveWorkspaceId(workspace)
-                return executeCreateWithRetry(() => client.addFolder({ name, workspaceId }))
+                return executeCreateWithRetry(() => client.addFolder({ name, workspaceId }), {
+                    noun: 'folder',
+                    findWith: ToolNames.FIND_FOLDERS,
+                })
             }),
         )
 

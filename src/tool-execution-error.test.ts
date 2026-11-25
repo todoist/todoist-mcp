@@ -5,6 +5,7 @@ import {
     formatBatchItemError,
     formatDueStringParseError,
     formatToolExecutionError,
+    UnconfirmedCreateError,
 } from './tool-execution-error.js'
 
 // Longer than the 220 characters a generic error is cut to.
@@ -282,6 +283,18 @@ describe('formatToolExecutionError', () => {
         it('shows the people an ambiguous user reference fits in full', () => {
             expect(formatBatchItemError(new AmbiguousUserError(AMBIGUOUS_USER_MESSAGE))).toBe(
                 AMBIGUOUS_USER_MESSAGE,
+            )
+        })
+
+        it('keeps the status of a create that may have been saved and says where to check', () => {
+            const cause = Object.assign(new Error('Bad Gateway'), { httpStatusCode: 502 })
+
+            expect(
+                formatBatchItemError(
+                    new UnconfirmedCreateError(cause, { noun: 'label', findWith: 'find-labels' }),
+                ),
+            ).toBe(
+                'Bad Gateway (HTTP 502). The label may have been saved anyway. Check with find-labels before adding it again.',
             )
         })
 

@@ -1,3 +1,4 @@
+import { type CreatedItem, UnconfirmedCreateError } from '../tool-execution-error.js'
 import {
     executeCreateWithRetry,
     executeWithRetry,
@@ -379,25 +380,42 @@ describe('getRetryDelay', () => {
 })
 
 describe('executeCreateWithRetry', () => {
+    const LABEL: CreatedItem = { noun: 'label', findWith: 'find-labels' }
+
     it('retries a 503, where the server turned the create away', async () => {
         const fn = vi
             .fn()
             .mockRejectedValueOnce({ httpStatusCode: 503 })
             .mockResolvedValueOnce('created')
 
-        await expect(executeCreateWithRetry(fn, NO_DELAY)).resolves.toBe('created')
+        await expect(executeCreateWithRetry(fn, LABEL, NO_DELAY)).resolves.toBe('created')
         expect(fn).toHaveBeenCalledTimes(2)
     })
 
-    it.each([502, 504])(
-        'does not retry a %i, since the create may already have happened',
-        async (httpStatusCode) => {
-            const fn = vi.fn().mockRejectedValue({ httpStatusCode })
+    it.each([
+        { failure: 'a 500', cause: { httpStatusCode: 500 } },
+        { failure: 'a 502', cause: { httpStatusCode: 502 } },
+        { failure: 'a 504', cause: { httpStatusCode: 504 } },
+        { failure: 'a lost connection', cause: new TypeError('fetch failed') },
+    ])('does not retry $failure, and reports the label may have been saved', async ({ cause }) => {
+        const fn = vi.fn().mockRejectedValue(cause)
 
-            await expect(executeCreateWithRetry(fn, NO_DELAY)).rejects.toEqual({
-                httpStatusCode,
-            })
-            expect(fn).toHaveBeenCalledOnce()
+        const error = await executeCreateWithRetry(fn, LABEL, NO_DELAY).catch(
+            (reason: unknown) => reason,
+        )
+
+        expect(fn).toHaveBeenCalledOnce()
+        expect(error).toBeInstanceOf(UnconfirmedCreateError)
+        expect((error as UnconfirmedCreateError).cause).toBe(cause)
+    })
+
+    it.each([400, 403, 503])(
+        'reports a %i as it is, since the label was not saved',
+        async (httpStatusCode) => {
+            const cause = { httpStatusCode }
+            const fn = vi.fn().mockRejectedValue(cause)
+
+            await expect(executeCreateWithRetry(fn, LABEL, NO_DELAY)).rejects.toBe(cause)
         },
     )
 })

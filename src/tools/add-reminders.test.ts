@@ -1,5 +1,6 @@
 import type { Reminder, TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
+import { createApiError } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
 import { resolveUserRefs } from '../utils/user-resolver.js'
 import { addReminders } from './add-reminders.js'
@@ -472,7 +473,9 @@ describe(`${ADD_REMINDERS} tool`, () => {
         it('keeps the created reminders when one in the batch fails', async () => {
             mockTodoistApi.addReminder
                 .mockResolvedValueOnce(createMockRelativeReminder({ id: 'r-1', itemId: 'task-1' }))
-                .mockRejectedValueOnce(new Error('API Error: Task has no due date'))
+                .mockRejectedValueOnce(
+                    createApiError({ status: 400, error: 'Task has no due date' }),
+                )
 
             const result = await addReminders.execute(
                 {
@@ -490,7 +493,7 @@ describe(`${ADD_REMINDERS} tool`, () => {
             expect(structuredContent.successCount).toBe(1)
             expect(structuredContent.failureCount).toBe(1)
             expect(structuredContent.failures).toEqual([
-                { item: 'Reminder 2 on task task-2', error: 'API Error: Task has no due date' },
+                { item: 'Reminder 2 on task task-2', error: 'Task has no due date (HTTP 400)' },
             ])
             expect(result.textContent).toContain('Added 1 time-based reminder')
             expect(result.textContent).toContain('Failed (1) - address or drop these items')
@@ -501,7 +504,9 @@ describe(`${ADD_REMINDERS} tool`, () => {
             // reminder's requested user.
             mockUserLookup()
             mockTodoistApi.addReminder
-                .mockRejectedValueOnce(new Error('API Error: Task has no due date'))
+                .mockRejectedValueOnce(
+                    createApiError({ status: 400, error: 'Task has no due date' }),
+                )
                 .mockResolvedValueOnce(
                     createMockRelativeReminder({ id: 'r-2', notifyUid: 'user-1' }),
                 )
@@ -538,7 +543,7 @@ describe(`${ADD_REMINDERS} tool`, () => {
             expect(result.textContent).toContain('No reminders added')
         })
 
-        it('does not retry a reminder that failed with a 502, since it may have been created', async () => {
+        it('does not retry a reminder that failed with a 502, and says it may have been created', async () => {
             mockTodoistApi.addReminder.mockRejectedValueOnce(
                 Object.assign(new Error('Bad Gateway'), { httpStatusCode: 502 }),
             )
@@ -550,7 +555,10 @@ describe(`${ADD_REMINDERS} tool`, () => {
 
             expect(mockTodoistApi.addReminder).toHaveBeenCalledOnce()
             expect(result.structuredContent.failures).toEqual([
-                { item: 'Reminder 1 on task task-1', error: 'Bad Gateway (HTTP 502)' },
+                {
+                    item: 'Reminder 1 on task task-1',
+                    error: 'Bad Gateway (HTTP 502). The reminder may have been saved anyway. Check with find-reminders before adding it again.',
+                },
             ])
         })
 
