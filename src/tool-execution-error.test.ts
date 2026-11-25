@@ -5,12 +5,74 @@ import {
     formatBatchItemError,
     formatDueStringParseError,
     formatToolExecutionError,
+    getRateLimitDetails,
     UnconfirmedCreateError,
 } from './tool-execution-error.js'
 
 // Longer than the 220 characters a generic error is cut to.
 const AMBIGUOUS_USER_MESSAGE =
     '"Smith" matches 7 people: "Ada Smith" (ID 6Jf8VQXxpwv56VQ1), "Bo Smith" (ID 6Jf8VQXxpwv56VQ2), "Cy Smith" (ID 6Jf8VQXxpwv56VQ3), "Di Smith" (ID 6Jf8VQXxpwv56VQ4), "Ed Smith" (ID 6Jf8VQXxpwv56VQ5) and 2 more. Retry with the ID of the one you mean, or search for them with find-project-collaborators.'
+
+describe('batch rate-limit details', () => {
+    it('keeps the longest body-provided delay across raw and SDK error fields', () => {
+        expect(
+            getRateLimitDetails({
+                httpStatusCode: 429,
+                responseData: { retry_after: 30, errorExtra: { retryAfter: '90' } },
+            }),
+        ).toEqual({ code: 'RATE_LIMITED', retryAfterSeconds: 90 })
+    })
+
+    it.each([
+        { statusCode: 429, data: { retry_after: 60 } },
+        { status: 429, responseData: { retryAfter: 60 } },
+        { response: { status: 429, data: { error_extra: { retry_after: 60 } } } },
+        { data: { http_code: 429, retry_after: 60 } },
+        new Error('Request failed', {
+            cause: { response: { status: 429, data: { retry_after: 60 } } },
+        }),
+    ])('preserves metadata across supported structured error shapes: %j', (error) => {
+        expect(getRateLimitDetails(error)).toEqual({
+            code: 'RATE_LIMITED',
+            retryAfterSeconds: 60,
+        })
+    })
+
+    it.each([undefined, null, '', -1, Infinity, '9'.repeat(400), true, 'later'])(
+        'does not invent a delay from %j',
+        (retryAfter) => {
+            expect(
+                getRateLimitDetails({ httpStatusCode: 429, responseData: { retryAfter } }),
+            ).toEqual({ code: 'RATE_LIMITED' })
+        },
+    )
+
+    it('keeps a zero-second delay', () => {
+        expect(
+            getRateLimitDetails({ httpStatusCode: 429, responseData: { retryAfter: 0 } }),
+        ).toEqual({ code: 'RATE_LIMITED', retryAfterSeconds: 0 })
+    })
+
+    it.each([
+        { httpStatusCode: 403, responseData: { errorTag: 'MAX_ITEMS_LIMIT_REACHED' } },
+        { httpStatusCode: 401, responseData: { retryAfter: 30 } },
+        new Error('An unrelated error mentioning HTTP 429'),
+    ])('does not classify an unrelated failure as a rate limit', (error) => {
+        expect(getRateLimitDetails(error)).toBeUndefined()
+    })
+
+    it('retains timing on an uncertain create without changing its recovery warning', () => {
+        const error = new UnconfirmedCreateError(
+            { httpStatusCode: 429, responseData: { error_extra: { retry_after: 60 } } },
+            { noun: 'task', findWith: 'find-tasks' },
+        )
+        expect(getRateLimitDetails(error)).toEqual({
+            code: 'RATE_LIMITED',
+            retryAfterSeconds: 60,
+        })
+        expect(formatBatchItemError(error)).toContain('may have been saved anyway')
+    })
+})
 
 describe('formatToolExecutionError', () => {
     it('shows the people an ambiguous user reference fits in full', () => {

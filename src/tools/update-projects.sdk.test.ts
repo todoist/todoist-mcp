@@ -1,15 +1,6 @@
-import { TodoistApi, type WorkspaceProject } from '@todoist/sdk'
-import { createMockWorkspaceProject, toFetchResponse } from '../utils/test-helpers.js'
+import { TodoistApi } from '@todoist/sdk'
+import { createMockWorkspaceProject, toApiPayload, toFetchResponse } from '../utils/test-helpers.js'
 import { updateProjects } from './update-projects.js'
-
-function toApiProject(project: WorkspaceProject) {
-    return Object.fromEntries(
-        Object.entries(project).map(([key, value]) => [
-            key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
-            value,
-        ]),
-    )
-}
 
 describe('Moving a project between folders through the real SDK', () => {
     it.each([
@@ -26,7 +17,7 @@ describe('Moving a project between folders through the real SDK', () => {
                 }
                 bodies.push(JSON.parse(String(init?.body)))
                 return toFetchResponse(
-                    toApiProject(createMockWorkspaceProject({ id: 'p-1', folderId: sent })),
+                    toApiPayload(createMockWorkspaceProject({ id: 'p-1', folderId: sent })),
                 )
             },
         })
@@ -53,7 +44,7 @@ describe('Changing a project icon through the real SDK', () => {
                 }
                 bodies.push(JSON.parse(String(init?.body)))
                 return toFetchResponse(
-                    toApiProject(createMockWorkspaceProject({ id: 'p-1', icon: sent })),
+                    toApiPayload(createMockWorkspaceProject({ id: 'p-1', icon: sent })),
                 )
             },
         })

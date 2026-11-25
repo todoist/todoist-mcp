@@ -11,6 +11,28 @@ type ApiErrorInfo = {
     fieldHints: string[]
 }
 
+/** Body-provided timing only; this does not mean a whole step is safe to replay. */
+export function getRateLimitDetails(
+    error: unknown,
+): { code: 'RATE_LIMITED'; retryAfterSeconds?: number } | undefined {
+    if (error instanceof UnconfirmedCreateError) {
+        return getRateLimitDetails(error.cause)
+    }
+    const { statusCode, responseData: data } = resolveApiErrorFields(error)
+    if (statusCode !== 429) return undefined
+    const extra = firstRecord(data?.errorExtra, data?.error_extra)
+    const delays = [extra?.retryAfter, extra?.retry_after, data?.retryAfter, data?.retry_after]
+        .map(toNumber)
+        .filter(
+            (value): value is number => value !== undefined && Number.isFinite(value) && value >= 0,
+        )
+
+    return {
+        code: 'RATE_LIMITED',
+        ...(delays.length ? { retryAfterSeconds: Math.max(...delays) } : {}),
+    }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null
 }
@@ -403,7 +425,7 @@ function getNextStepHint(error: ApiErrorInfo): string {
     return 'Check the request parameters and retry.'
 }
 
-function extractApiErrorInfo(error: unknown): ApiErrorInfo | null {
+function resolveApiErrorFields(error: unknown) {
     const errorRecord = isRecord(error) ? error : undefined
     const errorCauseRecord =
         error instanceof Error && isRecord(error.cause)
@@ -429,6 +451,20 @@ function extractApiErrorInfo(error: unknown): ApiErrorInfo | null {
         toNumber(responseData?.status),
         toNumber(responseData?.httpCode),
         toNumber(responseData?.http_code),
+    )
+
+    return { errorRecord, errorCauseRecord, responseData, statusCode }
+}
+
+function extractApiErrorInfo(error: unknown): ApiErrorInfo | null {
+    const {
+        errorRecord,
+        errorCauseRecord,
+        responseData,
+        statusCode: structuredStatusCode,
+    } = resolveApiErrorFields(error)
+    const statusCode = firstDefined(
+        structuredStatusCode,
         extractStatusCodeFromText(toStringValue(errorRecord?.message)),
         extractStatusCodeFromText(toStringValue(errorCauseRecord?.message)),
         extractStatusCodeFromText(typeof error === 'string' ? error : undefined),

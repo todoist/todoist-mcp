@@ -182,6 +182,16 @@ export function createMockWorkspaceProjectSummary(
     }
 }
 
+/** Converts top-level SDK fixture keys to the REST API's snake_case wire format. */
+export function toApiPayload(payload: object) {
+    return Object.fromEntries(
+        Object.entries(payload).map(([key, value]) => [
+            key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
+            value,
+        ]),
+    )
+}
+
 /**
  * Answers a `customFetch` call with `payload` as its JSON body, in the shape the
  * SDK reads. For `*.sdk.test.ts`, which run the real `TodoistApi`.

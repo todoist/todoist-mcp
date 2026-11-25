@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import { describeBatchItemError } from '../tool-execution-error.js'
+import { describeBatchItemError, getRateLimitDetails } from '../tool-execution-error.js'
 import { LogLimits } from './constants.js'
 import type { FailureSchema } from './output-schemas.js'
 import type { ToolName } from './tool-names.js'
@@ -47,7 +47,8 @@ export function partitionSettled<Item, Value>(
                 : `${summary}. ${hint.text}`
             explainedTags.add(hint.tag)
         }
-        failures.push({ item: describe(item, index), error })
+        const rateLimit = getRateLimitDetails(result?.reason)
+        failures.push({ item: describe(item, index), error, ...rateLimit })
     })
 
     return { succeeded, failures }

@@ -194,6 +194,7 @@ const FailureSchema = z.object({
     item: z.string().describe('Usually the ID of the item that failed.'),
     error: z.string(),
     code: z.string().optional(),
+    retryAfterSeconds: z.number().nonnegative().optional(),
 })
 
 export {

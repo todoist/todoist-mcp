@@ -1,19 +1,11 @@
-import { type PersonalProject, TodoistApi, type WorkspaceProject } from '@todoist/sdk'
+import { TodoistApi } from '@todoist/sdk'
 import {
     createMockProject,
     createMockWorkspaceProject,
+    toApiPayload,
     toFetchResponse,
 } from '../utils/test-helpers.js'
 import { addProjects } from './add-projects.js'
-
-function toApiProject(project: PersonalProject | WorkspaceProject) {
-    return Object.fromEntries(
-        Object.entries(project).map(([key, value]) => [
-            key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
-            value,
-        ]),
-    )
-}
 
 describe('Personal project limits through the real SDK', () => {
     it.each([
@@ -35,7 +27,7 @@ describe('Personal project limits through the real SDK', () => {
         'respects the $plan plan project limit with Boolean activity logs',
         async ({ current, next, successCount, failedProjects }) => {
             const existingProjects = Array.from({ length: 4 }, (_, index) =>
-                toApiProject(createMockProject({ id: `existing-${index}` })),
+                toApiPayload(createMockProject({ id: `existing-${index}` })),
             )
             let creationRequests = 0
             const client = new TodoistApi('unused-test-token', {
@@ -57,7 +49,7 @@ describe('Personal project limits through the real SDK', () => {
                             // Accept every write: enforcement must come from the tool,
                             // not an API rejection beyond the advertised limit.
                             creationRequests++
-                            payload = toApiProject(
+                            payload = toApiPayload(
                                 createMockProject({ id: 'created', name: 'First' }),
                             )
                             break
@@ -118,7 +110,7 @@ describe('Creating a project in a folder through the real SDK', () => {
                         break
                     }
                     case 'GET /api/v1/projects/campaigns-id':
-                        payload = toApiProject(
+                        payload = toApiPayload(
                             createMockWorkspaceProject({
                                 id: 'campaigns-id',
                                 name: 'Campaigns',
