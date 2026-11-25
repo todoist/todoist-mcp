@@ -1,7 +1,11 @@
 import type { GetTasksArgs, MoveTaskArgs, Task, TodoistApi, UpdateTaskArgs } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { AmbiguousUserError, formatBatchItemError } from '../tool-execution-error.js'
+import {
+    AmbiguousUserError,
+    formatBatchItemError,
+    getRateLimitDetails,
+} from '../tool-execution-error.js'
 import { isInboxProjectId, mapTask } from '../tool-helpers.js'
 import { AssignmentErrorType, assignmentValidator } from '../utils/assignment-validator.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
@@ -109,14 +113,17 @@ const TasksUpdateSchema = z.object({
 })
 
 type TaskUpdate = z.infer<typeof TasksUpdateSchema>
+type RateLimitDetails = ReturnType<typeof getRateLimitDetails>
 
 type TaskUpdateOutcome =
     | { kind: 'skipped' }
     | { kind: 'updated'; task: Task }
-    | { kind: 'partial'; task: Task; error: string }
+    | { kind: 'partial'; task: Task; error: string; rateLimit?: RateLimitDetails }
 
 /** A task's outcome, including a failure that must not abort the rest of the batch. */
-type BatchOutcome = TaskUpdateOutcome | { kind: 'failed'; error: string }
+type BatchOutcome =
+    | TaskUpdateOutcome
+    | { kind: 'failed'; error: string; rateLimit?: RateLimitDetails }
 
 /** One task's requested changes, normalised into what the API needs. */
 type PreparedTask = {
@@ -139,7 +146,7 @@ type PreparedTask = {
 /** A prepared task paired with the single move it actually needs. */
 type PlannedMove = { item: PreparedTask; move: MoveTaskArgs }
 
-type MoveResult = { task: Task } | { error: string }
+type MoveResult = { task: Task } | { error: string; rateLimit?: RateLimitDetails }
 
 /**
  * A group of moves whose outcome the response did not settle, either because the
@@ -218,11 +225,11 @@ const updateTasks = {
         // a retry loop that can trip server-side abuse penalties. So we settle every
         // task and report per-task outcomes.
         const outcomes: BatchOutcome[] = tasks.map(() => ({ kind: 'skipped' }))
-        const failWith = (index: number, error: string) => {
-            outcomes[index] = { kind: 'failed', error }
+        const failWith = (index: number, error: string, rateLimit?: RateLimitDetails) => {
+            outcomes[index] = { kind: 'failed', error, rateLimit }
         }
         const fail = (index: number, error: unknown) => {
-            failWith(index, formatBatchItemError(error))
+            failWith(index, formatBatchItemError(error), getRateLimitDetails(error))
         }
 
         const actionable = tasks
@@ -323,6 +330,7 @@ const updateTasks = {
                                 kind: 'partial',
                                 task: moved.task,
                                 error: `Move applied; field update failed: ${formatBatchItemError(error)}`,
+                                rateLimit: getRateLimitDetails(error),
                             }
                             return
                         }
@@ -350,7 +358,7 @@ const updateTasks = {
                     if (result && 'error' in result) {
                         // Already formatted by the move phase — formatting it again
                         // would flatten the API's objection into a bare status message.
-                        failWith(item.index, result.error)
+                        failWith(item.index, result.error, result.rateLimit)
                         // A failed move means the field update is not attempted, so the
                         // task is not left reporting a change that never applied to it.
                         item.failed = true
@@ -418,11 +426,11 @@ const updateTasks = {
  */
 function collectOutcomes({ tasks, outcomes }: { tasks: TaskUpdate[]; outcomes: BatchOutcome[] }): {
     updatedTasks: Task[]
-    failures: Array<{ item: string; error: string; code?: string }>
+    failures: Array<z.infer<typeof FailureSchema>>
     skippedCount: number
 } {
     const updatedTasks: Task[] = []
-    const failures: Array<{ item: string; error: string; code?: string }> = []
+    const failures: Array<z.infer<typeof FailureSchema>> = []
     let skippedCount = 0
 
     for (const [index, outcome] of outcomes.entries()) {
@@ -432,13 +440,18 @@ function collectOutcomes({ tasks, outcomes }: { tasks: TaskUpdate[]; outcomes: B
             continue
         }
         if (outcome.kind === 'failed') {
-            failures.push({ item, error: outcome.error })
+            failures.push({ item, error: outcome.error, ...outcome.rateLimit })
             continue
         }
 
         updatedTasks.push(outcome.task)
         if (outcome.kind === 'partial') {
-            failures.push({ item, error: outcome.error, code: 'PARTIAL_MOVE_APPLIED' })
+            failures.push({
+                item,
+                error: outcome.error,
+                ...outcome.rateLimit,
+                code: 'PARTIAL_MOVE_APPLIED',
+            })
         }
     }
 
@@ -486,7 +499,7 @@ async function fetchCurrentTaskStates({
 }: {
     client: TodoistApi
     ids: string[]
-}): Promise<{ states: Map<string, Task>; readFailed: boolean }> {
+}): Promise<{ states: Map<string, Task>; readFailed: boolean; rateLimit?: RateLimitDetails }> {
     const states = new Map<string, Task>()
     if (ids.length === 0) {
         return { states, readFailed: false }
@@ -503,10 +516,10 @@ async function fetchCurrentTaskStates({
                 states.set(task.id, task)
             }
         }
-    } catch {
+    } catch (error) {
         // Unknown state, so every requested move goes ahead. Recurrence checks fail
         // closed instead, see `recurrenceGuardError`.
-        return { states, readFailed: true }
+        return { states, readFailed: true, rateLimit: getRateLimitDetails(error) }
     }
 
     return { states, readFailed: false }
@@ -632,7 +645,10 @@ async function applyMoves({
             }
         } catch (error) {
             if (sole) {
-                results.set(sole.item.index, { error: formatBatchItemError(error) })
+                results.set(sole.item.index, {
+                    error: formatBatchItemError(error),
+                    rateLimit: getRateLimitDetails(error),
+                })
                 onResolved(group)
                 continue
             }
@@ -670,9 +686,18 @@ async function reconcileMoves({
     results: Map<number, MoveResult>
 }): Promise<void> {
     const ids = [...new Set(unresolved.flatMap(({ group }) => group.map(({ item }) => item.id)))]
-    const { states } = await fetchCurrentTaskStates({ client, ids })
+    const { states, rateLimit: readRateLimit } = await fetchCurrentTaskStates({ client, ids })
 
     for (const { group, destination, error } of unresolved) {
+        const moveRateLimit = getRateLimitDetails(error)
+        const delays = [moveRateLimit?.retryAfterSeconds, readRateLimit?.retryAfterSeconds].filter(
+            (delay): delay is number => delay !== undefined,
+        )
+        const rateLimit = moveRateLimit || readRateLimit
+        const combinedRateLimit = rateLimit && {
+            ...rateLimit,
+            ...(delays.length ? { retryAfterSeconds: Math.max(...delays) } : {}),
+        }
         const reason =
             error === undefined ? 'Task not returned by the move' : formatBatchItemError(error)
 
@@ -685,7 +710,7 @@ async function reconcileMoves({
             // Unreadable state counts as failed: over-reporting a failure is safer than
             // claiming a move that never happened, and a corrective retry is now cheap
             // because an already-moved task is recognised as needing no move.
-            results.set(item.index, { error: reason })
+            results.set(item.index, { error: reason, rateLimit: combinedRateLimit })
         }
     }
 }

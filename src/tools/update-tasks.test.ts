@@ -1755,9 +1755,13 @@ describe(`${UPDATE_TASKS} tool`, () => {
         })
 
         it('reports only the tasks the batch failed to move', async () => {
-            mockTodoistApi.moveTasks.mockRejectedValue(
-                createApiError({ status: 403, error: FORBIDDEN_MOVE, tag: 'FORBIDDEN' }),
-            )
+            mockTodoistApi.moveTasks.mockRejectedValue({
+                httpStatusCode: 429,
+                responseData: {
+                    error: 'Too many requests',
+                    error_extra: { retry_after: 60 },
+                },
+            })
             mockTodoistApi.getTasks
                 // Before the move, all three are elsewhere.
                 .mockResolvedValueOnce({
@@ -1781,8 +1785,12 @@ describe(`${UPDATE_TASKS} tool`, () => {
 
             expect(structuredContent.updatedTaskIds).toEqual(['task-a', 'task-b'])
             expect(structuredContent.failures).toHaveLength(1)
-            expect(structuredContent.failures[0]?.item).toBe('task-c')
-            expect(structuredContent.failures[0]?.error).toContain(FORBIDDEN_MOVE)
+            expect(structuredContent.failures[0]).toMatchObject({
+                item: 'task-c',
+                error: expect.stringContaining('Too many requests'),
+                code: 'RATE_LIMITED',
+                retryAfterSeconds: 60,
+            })
         })
 
         it('does not apply field updates to a task whose move failed', async () => {
@@ -1891,20 +1899,68 @@ describe(`${UPDATE_TASKS} tool`, () => {
             })
         })
 
-        it('fails the whole group when the state read also fails', async () => {
-            mockTodoistApi.moveTasks.mockRejectedValue(
-                createApiError({ status: 403, error: FORBIDDEN_MOVE, tag: 'FORBIDDEN' }),
-            )
-            mockTodoistApi.getTasks.mockRejectedValue(new Error('unavailable'))
+        it.each([
+            { readDelay: 30, expectedDelay: 60 },
+            { readDelay: 90, expectedDelay: 90 },
+        ])(
+            'keeps the longest delay when move and reconciliation fail: $readDelay',
+            async ({ readDelay, expectedDelay }) => {
+                mockTodoistApi.moveTasks.mockRejectedValue({
+                    httpStatusCode: 429,
+                    responseData: { error: 'Move rate limited', retry_after: 60 },
+                })
+                mockTodoistApi.getTasks.mockRejectedValue({
+                    httpStatusCode: 429,
+                    responseData: { retry_after: readDelay },
+                })
+
+                const { structuredContent } = await updateTasks.execute(
+                    { tasks: IDS.map((id) => ({ id, projectId: DESTINATION })) },
+                    mockTodoistApi,
+                )
+
+                expect(structuredContent.tasks).toHaveLength(0)
+                expect(structuredContent.failures).toHaveLength(3)
+                expect(structuredContent.failures).toEqual(
+                    IDS.map((item) => ({
+                        item,
+                        error: expect.stringContaining('Move rate limited'),
+                        code: 'RATE_LIMITED',
+                        retryAfterSeconds: expectedDelay,
+                    })),
+                )
+            },
+        )
+
+        it('keeps a reconciliation read rate limit without losing confirmed moves', async () => {
+            mockTodoistApi.moveTasks.mockResolvedValue([
+                createMockTask({ id: 'task-a', projectId: DESTINATION }),
+                createMockTask({ id: 'task-b', projectId: DESTINATION }),
+            ])
+            mockTodoistApi.getTasks
+                .mockResolvedValueOnce({
+                    results: IDS.map((id) => createMockTask({ id, projectId: 'original-project' })),
+                    nextCursor: null,
+                })
+                .mockRejectedValueOnce({
+                    httpStatusCode: 429,
+                    responseData: { error_extra: { retry_after: 90 } },
+                })
 
             const { structuredContent } = await updateTasks.execute(
                 { tasks: IDS.map((id) => ({ id, projectId: DESTINATION })) },
                 mockTodoistApi,
             )
 
-            expect(structuredContent.tasks).toHaveLength(0)
-            expect(structuredContent.failures).toHaveLength(3)
-            expect(structuredContent.failures[0]?.error).toContain(FORBIDDEN_MOVE)
+            expect(structuredContent.updatedTaskIds).toEqual(['task-a', 'task-b'])
+            expect(structuredContent.failures).toEqual([
+                {
+                    item: 'task-c',
+                    error: expect.stringContaining('not returned by the move'),
+                    code: 'RATE_LIMITED',
+                    retryAfterSeconds: 90,
+                },
+            ])
         })
 
         it('checks rather than assumes when the response omits a task', async () => {
@@ -1935,7 +1991,12 @@ describe(`${UPDATE_TASKS} tool`, () => {
             ])
             mockTodoistApi.updateTask
                 .mockResolvedValueOnce(createMockTask({ id: 'task-a', content: 'renamed a' }))
-                .mockRejectedValueOnce(new Error('API Error: update rejected'))
+                .mockRejectedValueOnce(
+                    Object.assign(new Error('Too many requests'), {
+                        httpStatusCode: 429,
+                        responseData: { error_extra: { retry_after: 60 } },
+                    }),
+                )
 
             const { structuredContent } = await updateTasks.execute(
                 {
@@ -1951,6 +2012,7 @@ describe(`${UPDATE_TASKS} tool`, () => {
             expect(structuredContent.failures).toHaveLength(1)
             expect(structuredContent.failures[0]?.item).toBe('task-b')
             expect(structuredContent.failures[0]?.code).toBe('PARTIAL_MOVE_APPLIED')
+            expect(structuredContent.failures[0]?.retryAfterSeconds).toBe(60)
             expect(structuredContent.failures[0]?.error).toContain('Move applied')
         })
 

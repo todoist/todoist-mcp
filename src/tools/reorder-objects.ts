@@ -2,7 +2,7 @@ import type { Project, Section, SyncCommand, TodoistApi } from '@todoist/sdk'
 import { createCommand } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
+import { formatBatchItemError, getRateLimitDetails } from '../tool-execution-error.js'
 import { isWorkspaceProject } from '../tool-helpers.js'
 import { logBatchFailures } from '../utils/batch-failures.js'
 import { BatchLimits } from '../utils/constants.js'
@@ -61,7 +61,7 @@ const OutputSchema = {
 }
 
 type Item = z.infer<typeof ReorderItemSchema>
-type Failure = { item: string; error: string }
+type Failure = z.infer<typeof FailureSchema>
 type OrderedItem = Item & { order: number }
 
 /** One key change to send, and the ID of the entity it re-keys. */
@@ -181,7 +181,11 @@ async function reorderProjects(client: TodoistApi, items: Item[]): Promise<Reord
                 movedIds.add(id)
             } else {
                 failedMoves.add(id)
-                failures.push({ item: id, error: formatBatchItemError(outcome.reason) })
+                failures.push({
+                    item: id,
+                    error: formatBatchItemError(outcome.reason),
+                    ...getRateLimitDetails(outcome.reason),
+                })
             }
         })
     }
@@ -203,6 +207,7 @@ async function reorderProjects(client: TodoistApi, items: Item[]): Promise<Reord
             for (const item of toReorder) {
                 failures.push({
                     item: item.id,
+                    ...getRateLimitDetails(error),
                     error: movedIds.has(item.id)
                         ? `Moved, but its new siblings could not be read to reorder it: ${reason}`
                         : `Its siblings could not be read to reorder it: ${reason}`,
@@ -339,7 +344,11 @@ async function applyKeyUpdates(
             const id = updates[index]?.id
             if (id === undefined || outcome.status === 'fulfilled') return
             failedIds.add(id)
-            failures.push({ item: id, error: formatBatchItemError(outcome.reason) })
+            failures.push({
+                item: id,
+                error: formatBatchItemError(outcome.reason),
+                ...getRateLimitDetails(outcome.reason),
+            })
         })
     }
     for (const { id } of requested) {

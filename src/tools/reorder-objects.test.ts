@@ -21,7 +21,15 @@ const mockTodoistApi = {
 
 const { REORDER_OBJECTS } = ToolNames
 
-type CommandStatus = 'ok' | { error: string; httpCode: number; errorCode: number; errorTag: string }
+type CommandStatus =
+    | 'ok'
+    | {
+          error: string
+          httpCode: number
+          errorCode: number
+          errorTag: string
+          errorExtra?: { retryAfter: number }
+      }
 
 /** What the mocked Sync API holds and how it answers each command. */
 let state: {
@@ -64,6 +72,16 @@ function forbidden(): CommandStatus {
         httpCode: 403,
         errorCode: 33,
         errorTag: 'FORBIDDEN',
+    }
+}
+
+function rateLimited(): CommandStatus {
+    return {
+        error: 'Too many requests',
+        httpCode: 429,
+        errorCode: 35,
+        errorTag: 'LIMITS_REACHED',
+        errorExtra: { retryAfter: 60 },
     }
 }
 
@@ -244,7 +262,7 @@ describe(`${REORDER_OBJECTS} tool`, () => {
 
         it('reports a failed move and skips reordering that project', async () => {
             state.projects = [personal('a', 'a0'), personal('b', 'a1')]
-            state.statusFor = (command) => (command.type === 'project_move' ? forbidden() : 'ok')
+            state.statusFor = (command) => (command.type === 'project_move' ? rateLimited() : 'ok')
 
             const result = await reorderObjects.execute(
                 {
@@ -268,7 +286,12 @@ describe(`${REORDER_OBJECTS} tool`, () => {
                 success: false,
             })
             expect(result.structuredContent.failures).toEqual([
-                { item: 'a', error: expect.stringContaining('Insufficient permissions') },
+                {
+                    item: 'a',
+                    error: expect.stringContaining('Too many requests'),
+                    code: 'RATE_LIMITED',
+                    retryAfterSeconds: 60,
+                },
             ])
         })
 
@@ -280,7 +303,9 @@ describe(`${REORDER_OBJECTS} tool`, () => {
                 workspace('y', 'a1'),
             ]
             state.statusFor = (command) =>
-                (command.args as { defaultOrderKey?: string }).defaultOrderKey ? forbidden() : 'ok'
+                (command.args as { defaultOrderKey?: string }).defaultOrderKey
+                    ? rateLimited()
+                    : 'ok'
 
             const result = await reorderObjects.execute(
                 {
@@ -299,7 +324,12 @@ describe(`${REORDER_OBJECTS} tool`, () => {
                 success: false,
             })
             expect(result.structuredContent.failures).toEqual([
-                { item: 'y', error: expect.stringContaining('Insufficient permissions') },
+                {
+                    item: 'y',
+                    error: expect.stringContaining('Too many requests'),
+                    code: 'RATE_LIMITED',
+                    retryAfterSeconds: 60,
+                },
             ])
             expect(result.textContent).toContain('y')
         })
@@ -360,7 +390,7 @@ describe(`${REORDER_OBJECTS} tool`, () => {
                     } as never
                 }
                 reads += 1
-                if (reads > 1) throw new Error('Service unavailable')
+                if (reads > 1) throw { httpStatusCode: 429, responseData: { retryAfter: 60 } }
                 return { projects: state.projects } as never
             })
 
@@ -384,10 +414,14 @@ describe(`${REORDER_OBJECTS} tool`, () => {
             expect(result.structuredContent.failures).toEqual([
                 {
                     item: 'a',
+                    code: 'RATE_LIMITED',
+                    retryAfterSeconds: 60,
                     error: expect.stringMatching(/^Moved, but its new siblings could not be read/),
                 },
                 {
                     item: 'b',
+                    code: 'RATE_LIMITED',
+                    retryAfterSeconds: 60,
                     error: expect.stringMatching(/^Its siblings could not be read/),
                 },
             ])
