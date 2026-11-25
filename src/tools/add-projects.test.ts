@@ -1060,7 +1060,7 @@ describe(`${ADD_PROJECTS} tool`, () => {
         it.each([
             {
                 failure: 'keeps answering 504',
-                error: Object.assign(new Error('Gateway Timeout'), { httpStatusCode: 504 }),
+                error: createApiError({ status: 504, error: 'Gateway Timeout' }),
                 cause: 'Gateway Timeout (HTTP 504)',
             },
             {

@@ -651,7 +651,7 @@ describe(`${ADD_TASKS} tool`, () => {
             vi.useFakeTimers()
             try {
                 mockTodoistApi.sync.mockRejectedValue(
-                    Object.assign(new Error('Gateway Timeout'), { httpStatusCode: 504 }),
+                    createApiError({ status: 504, error: 'Gateway Timeout' }),
                 )
 
                 const promise = addTasks.execute(
