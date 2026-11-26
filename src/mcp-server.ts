@@ -14,20 +14,9 @@ import { TODOIST_MCP_VERSION, createTodoistClient } from './usage-tracking.js'
 import { ONE_HOUR_MS } from './utils/constants.js'
 
 export const instructions = `
-## Todoist Task and Project Management Tools
+## Todoist
 
-You have access to comprehensive Todoist management tools for personal productivity and team collaboration. Use these tools to help users manage tasks, projects, sections, comments, and assignments effectively.
-
-### Core Capabilities:
-- Create, update, complete, and search tasks with rich metadata (priorities, due dates, durations, assignments)
-- Manage projects and sections with flexible organization
-- Handle comments and collaboration features
-- Bulk assignment operations for team workflows
-- Get overviews and insights about workload and progress
-
-### Choosing between tools
-
-What each tool does and how to fill its parameters is in the tool's own description and input schema. This section covers only what those cannot: which tool to reach for, and how tools relate to each other.
+Tools for Todoist tasks, projects, sections, folders, comments, labels, filters, reminders, templates, workspaces, collaborators, activity and productivity stats. Which tool to reach for:
 
 **Dates**
 
@@ -42,7 +31,7 @@ What each tool does and how to fill its parameters is in the tool's own descript
 - To resolve a person's name or email to a user ID, or to answer "who is X?", use **find-project-collaborators** with just a searchTerm. It covers every shared project you can access plus yourself, so an empty result means they collaborate on none of them — not that they do not exist.
 - Before assigning work to someone, call **find-project-collaborators** again with the target projectId. Resolving an ID only proves they collaborate on *some* project you can see; assignment fails unless they collaborate on that one.
 - To find out whether a task hides subtasks, use **fetch-object** with includeChildren rather than a speculative **find-tasks** call.
-- Filter tasks by label **name**. Label IDs are only for **delete-object** and **update-labels**. Shared labels can be renamed but not recoloured, reordered or favourited.
+- Filter tasks by label **name**. Label IDs are only for **delete-object** and **update-labels**.
 
 **Comments**
 
@@ -51,7 +40,7 @@ What each tool does and how to fill its parameters is in the tool's own descript
 
 **Deleting and archiving**
 
-- **delete-object** removes every object type; there is no per-type delete tool. Reminders use type "reminder", location reminders "location_reminder".
+- **delete-object** removes every object type; there is no per-type delete tool.
 - A workspace project must be archived with **project-management** before it can be deleted. A personal project can be deleted directly.
 
 **Templates**
@@ -69,8 +58,6 @@ What each tool does and how to fill its parameters is in the tool's own descript
 - Where a batch tool returns per-item \`failures\` alongside successes, one failure does not undo the rest: never retry the whole batch, re-send only the items whose failure reason is fixable. **reschedule-tasks** is the exception — it has no per-item failures and throws if any task fails, so retry it as a whole.
 
 For a productivity review, call **get-productivity-stats**, then find what the user completed as described under "Finding things".
-
-Always provide clear, actionable task titles and descriptions. Use the overview tools to give users context about their workload and project status.
 `
 
 /**

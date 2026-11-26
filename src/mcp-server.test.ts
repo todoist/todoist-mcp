@@ -4,16 +4,25 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getMcpServer } from './mcp-server.js'
 import { createMockUser } from './utils/test-helpers.js'
 
-async function readPromptsAndInstructions() {
+// Claude Code cuts server instructions, and the description of any tool it loads upfront, at this
+// many characters, and the model sees only the text before the cut:
+// https://code.claude.com/docs/en/mcp#scale-with-mcp-tool-search
+const CLAUDE_CODE_DESCRIPTION_LIMIT = 4_096
+
+async function readServerCatalogue() {
     const server = getMcpServer({ token: 'test-token' })
     const client = new Client({ name: 'mcp-server-test', version: '1.0.0' })
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
     try {
-        const { prompts } = await client.listPrompts()
+        const [{ prompts }, { tools }] = await Promise.all([
+            client.listPrompts(),
+            client.listTools(),
+        ])
         return {
             promptNames: prompts.map((prompt) => prompt.name),
-            instructions: client.getInstructions(),
+            tools,
+            instructions: client.getInstructions() ?? '',
         }
     } finally {
         await client.close()
@@ -26,10 +35,30 @@ describe('server instructions', () => {
     // instruction that routes the model to a prompt leaves it planning around a step it cannot
     // take, so routing guidance has to name tools.
     it('should not route the model to an MCP prompt', async () => {
-        const { promptNames, instructions } = await readPromptsAndInstructions()
+        const { promptNames, instructions } = await readServerCatalogue()
 
         expect(promptNames).toEqual(['productivity-analysis'])
-        expect(promptNames.filter((name) => instructions?.includes(name))).toEqual([])
+        expect(promptNames.filter((name) => instructions.includes(name))).toEqual([])
+    })
+
+    // Past the limit the end of the instructions is silently dropped, along with whatever
+    // guidance happened to sit there.
+    it("should fit within Claude Code's instructions limit", async () => {
+        const { instructions } = await readServerCatalogue()
+
+        expect(instructions.length).toBeLessThanOrEqual(CLAUDE_CODE_DESCRIPTION_LIMIT)
+    })
+})
+
+describe('tool descriptions', () => {
+    it("should each fit within Claude Code's upfront description limit", async () => {
+        const { tools } = await readServerCatalogue()
+
+        const tooLong = tools
+            .filter((tool) => (tool.description ?? '').length > CLAUDE_CODE_DESCRIPTION_LIMIT)
+            .map((tool) => `${tool.name} (${tool.description?.length})`)
+
+        expect(tooLong).toEqual([])
     })
 })
 
