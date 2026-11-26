@@ -421,59 +421,89 @@ describe(`${RESCHEDULE_TASKS} tool`, () => {
     })
 
     describe('batch operations', () => {
-        it('should batch multiple tasks into a single sync call', async () => {
-            const task1 = createMockTask({
-                id: 'task-1',
-                content: 'Task 1',
-                due: {
-                    date: '2026-03-15',
-                    string: 'every day',
-                    isRecurring: true,
-                },
+        it('should preserve timed and all-day due dates in a single sync call', async () => {
+            const tasks = [
+                createMockTask({
+                    id: 'task-1',
+                    due: {
+                        date: '2026-03-15T10:00:00',
+                        string: 'every day at 10am',
+                        isRecurring: true,
+                        timezone: null,
+                        lang: 'en',
+                    },
+                }),
+                createMockTask({
+                    id: 'task-2',
+                    due: {
+                        date: '2026-03-16T18:30:00Z',
+                        datetime: null,
+                        string: 'Mar 16 at 2:30pm',
+                        isRecurring: false,
+                        timezone: 'America/New_York',
+                        lang: 'en',
+                    },
+                }),
+                createMockTask({
+                    id: 'task-3',
+                    due: {
+                        date: '2026-03-17',
+                        string: 'Mar 17',
+                        isRecurring: false,
+                        lang: 'en',
+                    },
+                }),
+            ]
+            mockTodoistApi.getTask.mockImplementation(async (id: string) => {
+                const task = tasks.find((task) => task.id === id)
+                if (!task) throw new Error(`Unexpected task: ${id}`)
+                return task
             })
-            const task2 = createMockTask({
-                id: 'task-2',
-                content: 'Task 2',
-                due: {
-                    date: '2026-03-16',
-                    string: 'every week',
-                    isRecurring: true,
-                },
-            })
-
-            const updatedTask1 = createMockTask({
-                id: 'task-1',
-                content: 'Task 1',
-                due: { date: '2026-03-20', string: 'every day', isRecurring: true },
-            })
-            const updatedTask2 = createMockTask({
-                id: 'task-2',
-                content: 'Task 2',
-                due: { date: '2026-03-21', string: 'every week', isRecurring: true },
-            })
-
-            mockTodoistApi.getTask
-                .mockResolvedValueOnce(task1)
-                .mockResolvedValueOnce(task2)
-                // Re-fetch after sync
-                .mockResolvedValueOnce(updatedTask1)
-                .mockResolvedValueOnce(updatedTask2)
 
             await rescheduleTasks.execute(
                 {
                     tasks: [
                         { id: 'task-1', date: '2026-03-20' },
                         { id: 'task-2', date: '2026-03-21' },
+                        { id: 'task-3', date: '2026-03-22' },
                     ],
                 },
                 mockTodoistApi,
             )
 
-            // Single sync call with two commands
             expect(mockTodoistApi.sync).toHaveBeenCalledTimes(1)
             const syncCall = mockTodoistApi.sync.mock.calls[0]
             if (!syncCall) throw new Error('Expected sync to have been called')
-            expect(syncCall[0].commands).toHaveLength(2)
+            expect(syncCall[0].commands?.map((command) => command.args)).toEqual([
+                {
+                    id: 'task-1',
+                    due: {
+                        date: '2026-03-20T10:00:00',
+                        string: 'every day at 10am',
+                        isRecurring: true,
+                        lang: 'en',
+                    },
+                },
+                {
+                    id: 'task-2',
+                    due: {
+                        date: '2026-03-21T18:30:00Z',
+                        string: 'Mar 16 at 2:30pm',
+                        isRecurring: false,
+                        timezone: 'America/New_York',
+                        lang: 'en',
+                    },
+                },
+                {
+                    id: 'task-3',
+                    due: {
+                        date: '2026-03-22',
+                        string: 'Mar 17',
+                        isRecurring: false,
+                        lang: 'en',
+                    },
+                },
+            ])
         })
     })
 
@@ -597,13 +627,40 @@ describe('buildRescheduleDate', () => {
         expect(result).toBe('2026-03-20T10:30:00Z')
     })
 
-    it('should use explicit datetime as-is', () => {
-        const result = buildRescheduleDate('2026-03-20T14:00:00', {
-            date: '2026-03-15',
-            datetime: '2026-03-15T10:30:00Z',
-            string: 'every day at 10:30am',
-            isRecurring: true,
-        })
-        expect(result).toBe('2026-03-20T14:00:00')
-    })
+    it.each([
+        {
+            date: '2026-03-15T10:30:00.123456Z',
+            datetime: null,
+            expected: '2026-03-20T10:30:00.123456Z',
+        },
+        {
+            date: '2026-03-15T10:30:00+05:30',
+            datetime: '2026-03-15T05:00:00Z',
+            expected: '2026-03-20T10:30:00+05:30',
+        },
+    ])(
+        'should preserve the exact time suffix from due.date: $date',
+        ({ date, datetime, expected }) => {
+            const result = buildRescheduleDate('2026-03-20', {
+                date,
+                datetime,
+                string: 'every day at 10:30am',
+                isRecurring: true,
+            })
+            expect(result).toBe(expected)
+        },
+    )
+
+    it.each(['2026-03-15', '2026-03-15T10:30:00Z'])(
+        'should use explicit datetime as-is with due.date %s',
+        (date) => {
+            const result = buildRescheduleDate('2026-03-20T14:00:00', {
+                date,
+                datetime: '2026-03-15T10:30:00Z',
+                string: 'every day at 10:30am',
+                isRecurring: true,
+            })
+            expect(result).toBe('2026-03-20T14:00:00')
+        },
+    )
 })
