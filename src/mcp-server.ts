@@ -23,7 +23,7 @@ Tools for Todoist tasks, projects, sections, folders, comments, labels, filters,
 - To move a task to a different date or time use **reschedule-tasks**, never **update-tasks**. It also sets duration, for time-blocking. update-tasks replaces the whole due string, so it refuses a dueString on a recurring task unless replaceRecurrence is true.
 - Never send a task's existing projectId, sectionId or parentId back to **update-tasks** — those fields are treated as a move.
 - All dates respect the user's timezone.
-- Todoist apps only display task durations under 24 hours. A longer one ("36h") or a day-based one ("3d") is stored and reported faithfully, but the apps show the task as having no duration — only set one when the user explicitly asks for it.
+- Todoist apps show no duration of 24 hours or more ("36h", "3d"), though it is stored: only set one when the user explicitly asks for it.
 
 **Finding things**
 
@@ -31,7 +31,7 @@ Tools for Todoist tasks, projects, sections, folders, comments, labels, filters,
 - To resolve a person's name or email to a user ID, or to answer "who is X?", use **find-project-collaborators** with just a searchTerm. It covers every shared project you can access plus yourself, so an empty result means they collaborate on none of them — not that they do not exist.
 - Before assigning work to someone, call **find-project-collaborators** again with the target projectId. Resolving an ID only proves they collaborate on *some* project you can see; assignment fails unless they collaborate on that one.
 - To find out whether a task hides subtasks, use **fetch-object** with includeChildren rather than a speculative **find-tasks** call.
-- Filter tasks by label **name**. Label IDs are only for **delete-object** and **update-labels**.
+- Filter tasks by label **name**. Label IDs are only for **delete-object** and **update-labels**. Shared labels can be renamed but not recoloured, reordered or favourited.
 
 **Comments**
 
@@ -40,7 +40,7 @@ Tools for Todoist tasks, projects, sections, folders, comments, labels, filters,
 
 **Deleting and archiving**
 
-- **delete-object** removes every object type; there is no per-type delete tool.
+- **delete-object** removes every object type; there is no per-type delete tool. Reminders use type "reminder", location reminders "location_reminder".
 - A workspace project must be archived with **project-management** before it can be deleted. A personal project can be deleted directly.
 
 **Templates**
