@@ -20,11 +20,11 @@ Work out the start and end dates on the user's calendar, not in UTC: "this week"
 
 1. **get-productivity-stats** for completions per day and per week (with counts per project), goal streaks, and karma with its trend. It reports counts only, never the tasks.
 2. **find-activity** for what the user actually completed: objectType "task", eventType "completed", initiatorId set to the user's ID, dateFrom at the start of the first day and dateTo at the start of the day after the last, both with the user's UTC offset (for example "2026-11-16T00:00:00+01:00"). Without initiatorId the results include every collaborator's completions. Page through with cursor until there are no more.
-3. **get-overview** without a projectId for the list of projects, to spot ones with nothing completed.
+3. **find-projects** for the list of projects, paging with cursor, to spot ones with nothing completed.
 
 Use find-activity rather than **find-completed-tasks** for completions: find-completed-tasks leaves out each occurrence of a recurring task that is still active, so it undercounts.
 
-To review one project, pass its projectId to find-activity, and call get-overview with that projectId for its sections and open tasks.
+To review one project, pass its projectId to find-activity, and call **get-overview** with that projectId for its sections and open tasks.
 
 ## 3. Analyse
 

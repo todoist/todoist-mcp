@@ -26,12 +26,13 @@ Ask before changing anything. Moving, completing and filing tasks are the user's
 
 ## 3. Apply it
 
-- Move a task to another day or time with **reschedule-tasks**, never **update-tasks**: it keeps a recurring task's pattern, where update-tasks would replace it. Send every move in one call.
-- Time-block with reschedule-tasks too: a date and time such as "2026-11-26T14:00:00", plus a duration such as "45m". Keep durations under 24 hours: the Todoist apps do not display longer ones.
+- Move a task that already has a date to another day or time with **reschedule-tasks**, never **update-tasks**: it keeps a recurring task's pattern, where update-tasks would replace it. Send every move in one call.
+- Time-block a dated task with reschedule-tasks too: a date and time such as "2026-11-26T14:00:00", plus a duration such as "45m". Keep durations under 24 hours: the Todoist apps do not display longer ones.
+- Schedule a task with no date, as most Inbox tasks are, with update-tasks and a dueString such as "today at 14:00", plus a duration to time-block it. Do the same for a task that has only a deadline. reschedule-tasks leaves a task with no date untouched, and for a deadline-only task it moves the deadline and drops the time.
 - File Inbox tasks with update-tasks, passing only the projectId or sectionId that changes, and set priority or labels in the same call.
 - Complete finished tasks with **complete-tasks**, and capture new ones with **add-tasks**.
 
-Batch tools report each item that failed alongside the ones that worked. Re-send only the failed items whose reason you can fix, never the whole batch. reschedule-tasks is the exception: it fails as a whole, so retry it as a whole.
+Batch tools, reschedule-tasks included, report each item that failed alongside the ones that worked. Re-send only the failed items whose reason you can fix, never the whole batch.
 
 ## 4. Confirm
 
