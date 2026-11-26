@@ -5,7 +5,7 @@ import {
     SkillsExtension,
     skillEntry,
 } from '@modelcontextprotocol/server/ext/skills'
-import { ONE_HOUR_MS } from '../utils/constants.js'
+import { CATALOGUE_CACHE_HINT } from '../utils/constants.js'
 import { filterQueries } from './filter-queries.js'
 import { planMyDay } from './plan-my-day.js'
 import { productivityReview } from './productivity-review.js'
@@ -62,14 +62,13 @@ const source: SkillSource = {
 
 /**
  * One extension serves every server `getMcpServer` builds, including the one the HTTP transport
- * builds per request. The skills are the same for every user and change only with a deploy, hence
- * the hour-long cache hint. It is private, like the rest of the catalogue, because the endpoint is
- * authenticated.
+ * builds per request. The skills change only with a deploy, like the rest of the catalogue, so
+ * they share its cache hint.
  */
 const skillsExtension = new SkillsExtension({
     source,
     baseUri: SKILL_BASE_URI,
-    cacheHint: { ttlMs: ONE_HOUR_MS, cacheScope: 'private' },
+    cacheHint: CATALOGUE_CACHE_HINT,
 })
 
 /**

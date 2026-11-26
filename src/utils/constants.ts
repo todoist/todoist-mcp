@@ -11,6 +11,20 @@ export const ONE_HOUR_MS = 60 * 60 * 1000
 /** One year (365 days) in milliseconds. */
 export const ONE_YEAR_MS = 365 * 24 * ONE_HOUR_MS
 
+/**
+ * Freshness hint stamped on the catalogue results (`tools/list`, `prompts/list`,
+ * the resource lists, `server/discover` and the skills) for clients on protocol
+ * revision 2026-07-28 or later.
+ *
+ * The catalogue only changes when a new version of this server is deployed, so
+ * a client can hold it for an hour without re-fetching; `listChanged`
+ * notifications still cover the rare mid-session change. The scope is private
+ * because the endpoint is authenticated and the tool set can differ per
+ * deployment (`features`), so a shared cache must not serve one client's
+ * catalogue to another.
+ */
+export const CATALOGUE_CACHE_HINT = { ttlMs: ONE_HOUR_MS, cacheScope: 'private' } as const
+
 // API Pagination Limits
 export const ApiLimits = {
     /** Default limit for task listings */

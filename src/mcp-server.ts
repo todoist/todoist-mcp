@@ -12,7 +12,7 @@ import { productivityAnalysis } from './prompts/productivity-analysis.js'
 import { registerSkills } from './skills/skills.js'
 import { registeredTools } from './tool-registry.js'
 import { TODOIST_MCP_VERSION, createTodoistClient } from './usage-tracking.js'
-import { ONE_HOUR_MS } from './utils/constants.js'
+import { CATALOGUE_CACHE_HINT } from './utils/constants.js'
 
 export const instructions = `
 ## Todoist
@@ -60,20 +60,6 @@ Manage Todoist: create, update, complete and search tasks (priorities, dates, du
 
 For a productivity review, call **get-productivity-stats**, then find what the user completed as described under "Finding things".
 `
-
-/**
- * Freshness hint stamped on the catalogue results (`tools/list`, `prompts/list`,
- * the resource lists and `server/discover`) for clients on protocol revision
- * 2026-07-28 or later.
- *
- * The catalogue only changes when a new version of this server is deployed, so
- * a client can hold it for an hour without re-fetching; `listChanged`
- * notifications still cover the rare mid-session change. The scope is private
- * because the endpoint is authenticated and the tool set can differ per
- * deployment (`features`), so a shared cache must not serve one client's
- * catalogue to another.
- */
-const CATALOGUE_CACHE_HINT = { ttlMs: ONE_HOUR_MS, cacheScope: 'private' } as const
 
 /**
  * What the server does, sent with its name and version (`serverInfo`). The spec meant this for
