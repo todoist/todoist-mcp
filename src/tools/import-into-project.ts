@@ -18,7 +18,7 @@ const ArgsSchema = {
         .regex(TEMPLATE_ID_PATTERN, { error: TEMPLATE_ID_ERROR })
         .optional()
         .describe(
-            'The template to import — either a gallery slug ("product-launch"), a personal template ID ("UT_28Ex..."), or a full Todoist template URL, which is reduced to the ID automatically. Gallery templates work for anyone; personal templates only for the account that owns them. There is no way to list templates through this server, so only use the ID or URL the user supplied. Not with `csvFileContent`.',
+            'The template to import — either a gallery slug ("product-launch"), a personal template ID ("UT_28Ex..."), or a full Todoist template URL, which is reduced to the ID automatically. Gallery templates work for anyone; personal templates only for the account that owns them. Find one with find-templates. Not with `csvFileContent`.',
         ),
     csvFileContent: z
         .string()
@@ -96,14 +96,14 @@ function generateTextContent({
 const importIntoProject = {
     name: ToolNames.IMPORT_INTO_PROJECT,
     description:
-        'Import a template (by ID or URL) or CSV content into an existing project, like the app\'s "Import from CSV", adding its tasks, sections and comments to whatever is already there. To start a new project from a template, create the project with add-projects first, then import into it. This writes immediately and cannot be undone, so only run it against a project the user named.',
+        'Import a template (by ID or URL) or CSV content into an existing project, like the app\'s "Import from CSV", adding its tasks, sections and comments to whatever is already there. To start a new project from a template, use add-projects with templateId instead. This writes immediately and cannot be undone, so only run it against a project the user named.',
     parameters: ArgsSchema,
     outputSchema: OutputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     async execute({ projectId, templateId, csvFileContent, locale }, client) {
         if (Boolean(templateId) === Boolean(csvFileContent)) {
             throw new Error(
-                'Provide exactly one source: either `templateId` or `csvFileContent`. Templates cannot be listed through this server — ask the user for an ID or template URL.',
+                'Provide exactly one source: either `templateId` or `csvFileContent`. Find template IDs with find-templates.',
             )
         }
 

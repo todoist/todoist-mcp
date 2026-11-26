@@ -216,7 +216,9 @@ describe(`${IMPORT_INTO_PROJECT} tool`, () => {
         it('should reject a call with neither templateId nor csvFileContent', async () => {
             await expect(
                 importIntoProject.execute({ projectId: TEST_IDS.PROJECT_TEST }, mockTodoistApi),
-            ).rejects.toThrow('exactly one source')
+            ).rejects.toThrow(
+                'Provide exactly one source: either `templateId` or `csvFileContent`. Find template IDs with find-templates.',
+            )
         })
     })
 
