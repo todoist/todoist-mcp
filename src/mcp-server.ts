@@ -16,7 +16,7 @@ import { ONE_HOUR_MS } from './utils/constants.js'
 export const instructions = `
 ## Todoist
 
-Tools for Todoist tasks, projects, sections, folders, comments, labels, filters, reminders, templates, workspaces, collaborators, activity and productivity stats. Which tool to reach for:
+Tools for Todoist tasks, projects, sections, folders, comments and attachments, labels, filters, reminders, templates, workspaces, collaborators, user status, activity, overviews and productivity stats. Which tool to reach for:
 
 **Dates**
 
@@ -55,7 +55,7 @@ Tools for Todoist tasks, projects, sections, folders, comments, labels, filters,
 **Batches**
 
 - Prefer a batch tool over one call per item.
-- Where a batch tool returns per-item \`failures\` alongside successes, one failure does not undo the rest: never retry the whole batch, re-send only the items whose failure reason is fixable. **reschedule-tasks** is the exception — it has no per-item failures and throws if any task fails, so retry it as a whole.
+- Where a batch tool returns per-item \`failures\` alongside successes, one failure does not undo the rest: never retry the whole batch, re-send only the items whose failure reason is fixable.
 
 For a productivity review, call **get-productivity-stats**, then find what the user completed as described under "Finding things".
 `
