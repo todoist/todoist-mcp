@@ -461,6 +461,8 @@ const SCENARIOS: Scenario[] = [
                 ? null
                 : `not a delete of folder ${EVAL_FOLDER_ID}: ${JSON.stringify(input)}`,
         guards: 'delete-object folder: deleting a folder',
+    },
+    {
         // A saved template can't be deleted through the API, so a template the
         // user didn't want stays until they remove it in the app. The ID is in
         // the prompt so the first call is the save, not a lookup.
