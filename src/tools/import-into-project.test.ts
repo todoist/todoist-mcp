@@ -1,7 +1,10 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { type Mocked, vi } from 'vitest'
 import { z } from 'zod'
+import { formatToolExecutionError } from '../tool-execution-error.js'
+import { executeWithRetry } from '../utils/retry.js'
 import {
+    createApiError,
     createMockSection,
     createMockTask,
     getAdvertisedPattern,
@@ -193,6 +196,59 @@ describe(`${IMPORT_INTO_PROJECT} tool`, () => {
                     mockTodoistApi,
                 ),
             ).rejects.toThrow('Invalid CSV')
+        })
+    })
+
+    describe('failed imports', () => {
+        const SOURCES = [
+            ['template', 'importTemplateFromId', { templateId: 'product-launch' }],
+            ['CSV', 'importCsvIntoProject', { csvFileContent: 'TYPE,CONTENT\ntask,Buy milk\n' }],
+        ] as const
+
+        it.each(SOURCES)(
+            'names the project when a %s import fails, keeping the API error',
+            async (_source, method, args) => {
+                mockTodoistApi[method].mockRejectedValue(
+                    createApiError({
+                        status: 400,
+                        error: 'Invalid import',
+                        tag: 'INVALID_ARGUMENT',
+                    }),
+                )
+
+                const error = await importIntoProject
+                    .execute({ projectId: TEST_IDS.PROJECT_TEST, ...args }, mockTodoistApi)
+                    .catch((caught: unknown) => caught)
+
+                const message = formatToolExecutionError(error)
+                expect(message).toContain('Invalid import')
+                expect(message).toContain('HTTP 400')
+                expect(message).toContain(
+                    `The import into project (id=${TEST_IDS.PROJECT_TEST}) did not complete. If you created that project for this import, it may be empty.`,
+                )
+            },
+        )
+
+        it('is still retried after a 503, like any other call', async () => {
+            vi.useFakeTimers()
+            try {
+                mockTodoistApi.importTemplateFromId
+                    .mockRejectedValueOnce(createApiError({ status: 503, error: 'Unavailable' }))
+                    .mockResolvedValueOnce(createImportResponse())
+
+                const promise = executeWithRetry(() =>
+                    importIntoProject.execute(
+                        { projectId: TEST_IDS.PROJECT_TEST, templateId: 'product-launch' },
+                        mockTodoistApi,
+                    ),
+                )
+                await vi.runAllTimersAsync()
+                await promise
+
+                expect(mockTodoistApi.importTemplateFromId).toHaveBeenCalledTimes(2)
+            } finally {
+                vi.useRealTimers()
+            }
         })
     })
 

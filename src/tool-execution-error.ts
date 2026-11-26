@@ -644,6 +644,23 @@ export class UnconfirmedCreateError extends Error {
 }
 
 /**
+ * A failed call, with a sentence of context the API's error cannot carry, such
+ * as which object the call was acting on. It formats as its cause followed by
+ * the context, and keeps the cause's status, so a retry treats it as the cause.
+ */
+export class ErrorWithContext extends Error {
+    readonly context: string
+    readonly httpStatusCode?: number
+
+    constructor(cause: unknown, context: string) {
+        super(cause instanceof Error ? cause.message : String(cause), { cause })
+        this.name = 'ErrorWithContext'
+        this.context = context
+        this.httpStatusCode = resolveApiErrorFields(cause).statusCode
+    }
+}
+
+/**
  * Compact single-line variant of {@link formatToolExecutionError} for batch
  * tools that report per-item failures. Unlike `error.message` (which for SDK
  * errors is just "HTTP 403: Forbidden"), this preserves the API error signals
@@ -763,6 +780,10 @@ export function formatDueStringParseError(
 export function formatToolExecutionError(error: unknown): string {
     if (error instanceof ZodError) {
         return error.message
+    }
+
+    if (error instanceof ErrorWithContext) {
+        return `${formatToolExecutionError(error.cause)} ${error.context}`
     }
 
     if (

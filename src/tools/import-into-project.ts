@@ -1,6 +1,7 @@
 import type { ImportTemplateResponse } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
+import { ErrorWithContext } from '../tool-execution-error.js'
 import { mapComment, mapTask } from '../tool-helpers.js'
 import {
     CommentSchema,
@@ -107,21 +108,37 @@ const importIntoProject = {
             )
         }
 
+        // A model that just created the project with add-projects needs to know which
+        // project a failed import has left empty.
+        const failedInto = (error: unknown) =>
+            new ErrorWithContext(
+                error,
+                `The import into project (id=${projectId}) did not complete. If you created that project for this import, it may be empty.`,
+            )
+
         if (templateId) {
-            const result = await client.importTemplateFromId({
-                projectId,
-                templateId: extractTemplateId(templateId),
-                locale,
-            })
+            const result = await client
+                .importTemplateFromId({
+                    projectId,
+                    templateId: extractTemplateId(templateId),
+                    locale,
+                })
+                .catch((error: unknown) => {
+                    throw failedInto(error)
+                })
             return toProjectImportResult({ projectId, source: 'template', result })
         }
 
-        const result = await client.importCsvIntoProject({
-            projectId,
-            // The SDK treats strings as filesystem paths, not file content.
-            file: new Blob([csvFileContent ?? ''], { type: 'text/csv' }),
-            fileName: 'template.csv',
-        })
+        const result = await client
+            .importCsvIntoProject({
+                projectId,
+                // The SDK treats strings as filesystem paths, not file content.
+                file: new Blob([csvFileContent ?? ''], { type: 'text/csv' }),
+                fileName: 'template.csv',
+            })
+            .catch((error: unknown) => {
+                throw failedInto(error)
+            })
         return toProjectImportResult({ projectId, source: 'CSV', result })
     },
 } satisfies TodoistTool<typeof ArgsSchema, typeof OutputSchema>
