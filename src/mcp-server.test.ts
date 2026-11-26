@@ -46,6 +46,7 @@ describe('server instructions', () => {
     it("should fit within Claude Code's instructions limit", async () => {
         const { instructions } = await readServerCatalogue()
 
+        expect(instructions.length).toBeGreaterThan(0)
         expect(instructions.length).toBeLessThanOrEqual(CLAUDE_CODE_DESCRIPTION_LIMIT)
     })
 })
