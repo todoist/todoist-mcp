@@ -328,6 +328,35 @@ describe('createHttpApp protocol revisions', () => {
         expect(result).toMatchObject(WIDGET_FALLBACK_HINT)
     })
 
+    // Each request gets a server of its own, so the skills have to be attached to every one of
+    // them. They change only with a deploy, so a client can keep the listing for an hour.
+    it('serves the skills to a 2026-07-28 client, cacheable for an hour', async () => {
+        async function send(id: number, method: string) {
+            const modern = modernRequest(id, method)
+            const res = await request(port, {
+                method: 'POST',
+                path: '/mcp',
+                headers: { ...modern.headers, host: `127.0.0.1:${port}` },
+                body: modern.body,
+            })
+            return firstJsonRpcResult(res.body)
+        }
+
+        const discover = await send(9, 'server/discover')
+        const listing = await send(10, 'skills/list')
+
+        expect(discover.capabilities).toHaveProperty([
+            'extensions',
+            'io.modelcontextprotocol/skills',
+        ])
+        expect(listing.skills).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ uri: 'skill://templates/SKILL.md' }),
+            ]),
+        )
+        expect(listing).toMatchObject(CATALOGUE_HINT)
+    })
+
     it('still serves a 2025-era client that opens with initialize', async () => {
         const legacy = legacyRequest(3, 'initialize', {
             protocolVersion: PROTOCOL_2025,

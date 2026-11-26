@@ -161,6 +161,10 @@ For our design philosophy, guidelines, and development patterns, see [docs/tool-
 
 For a complete list of available tools, see the [src/tools](src/tools) directory.
 
+### Skills
+
+The server also publishes skills over MCP, step-by-step guides a client loads only when a task calls for one: planning the day, a productivity review, working with templates, and writing filter queries. Clients that support skills over MCP (Claude Code, for one) list them alongside the tools; see the [src/skills](src/skills) directory.
+
 #### OpenAI MCP Compatibility
 
 This server includes `search` and `fetch` tools that follow the [OpenAI MCP specification](https://platform.openai.com/docs/mcp), enabling seamless integration with OpenAI's MCP protocol. These tools return JSON-encoded results optimized for OpenAI's requirements while maintaining compatibility with the broader MCP ecosystem.

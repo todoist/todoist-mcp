@@ -9,6 +9,7 @@ import {
     registerTools,
 } from './mcp-helpers.js'
 import { productivityAnalysis } from './prompts/productivity-analysis.js'
+import { registerSkills } from './skills/skills.js'
 import { registeredTools } from './tool-registry.js'
 import { TODOIST_MCP_VERSION, createTodoistClient } from './usage-tracking.js'
 import { ONE_HOUR_MS } from './utils/constants.js'
@@ -128,6 +129,13 @@ function getMcpServer({
      * The surface is defined by `registeredTools`; see `tool-registry.ts`.
      */
     registerTools({ tools: registeredTools, server, client: todoist, features })
+
+    /**
+     * Skills
+     *
+     * Workflows a client loads only when a task calls for them; see `skills/skills.ts`.
+     */
+    registerSkills(server)
 
     /**
      * Prompts

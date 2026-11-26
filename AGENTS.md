@@ -156,6 +156,12 @@ When adding new tool features:
 3. Add tests demonstrating the feature
 4. Include examples in descriptions where helpful
 
+### Where guidance goes
+
+- **A tool's description:** what the tool does and how to call it.
+- **The `instructions`:** which tool to reach for, and what a model must not get wrong (retrying a batch, archiving before deleting). Every client reads them, so keep them short: Claude Code cuts them at 4,096 characters.
+- **A skill in `src/skills/`:** a multi-step workflow or reference material, such as planning the day or the filter query syntax. A client loads it only when a task calls for it, so it can be as long as the workflow needs. Only clients that support skills over MCP see it, so a rule every model must follow also belongs in the tools or the instructions, and the instructions never route to a skill. A skill names tools in bold (`**find-tasks**`), and `src/skills/skills.test.ts` fails if one of them is not a registered tool. Add a new skill to `registeredSkills` in `src/skills/skills.ts`.
+
 ### Keeping CODEBASE.md accurate
 
 `CODEBASE.md` is a structural map, not a file index. Update it when **structure** changes — not on every new file. Triggers:

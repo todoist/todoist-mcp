@@ -43,7 +43,7 @@ src/
 ├─ main-http.ts               # Express entry: thin bootstrap — reads env, builds the app, listen()
 ├─ http-app.ts                # createHttpApp(): returns { app, close } — the Express app + middleware chain (Host/Origin guard scoped to /mcp) in front of createMcpHandler()/toNodeHandler(), and the handler's close() for graceful shutdown. Pure/side-effect-free so it's testable
 ├─ index.ts                   # Public package exports — a curated subset of tools + helpers + types. NOT the full registry.
-├─ mcp-server.ts              # getMcpServer() factory. Iterates `registeredTools`, registers the productivity-analysis prompt, contains the giant `instructions` string shown to the LLM
+├─ mcp-server.ts              # getMcpServer() factory. Iterates `registeredTools`, attaches the skills, registers the productivity-analysis prompt, contains the giant `instructions` string shown to the LLM
 ├─ tool-registry.ts           # **Authoritative tool registry** — the ordered list of every registered tool. mcp-server, index.ts, run-tool.ts, validate-schemas.ts and the token-footprint test all derive from it
 ├─ mcp-helpers.ts             # registerTool(): Todoist's wiring of the @todoist/mcp-core registrar (client, retry, usage tracking, strip_emails, error formatting). FEATURE_NAMES
 ├─ usage-tracking.ts          # Shared Todoist request headers + SDK customFetch wrapper for MCP usage attribution
@@ -52,6 +52,7 @@ src/
 ├─ filter-helpers.ts          # appendToQuery, buildResponsibleUserQueryFilter, resolveResponsibleUser
 ├─ tool-execution-error.ts    # formatToolExecutionError (actionable API-error formatting, incl. known error_tag hints like MAX_ITEMS_LIMIT_REACHED) + formatBatchItemError (single-line per-item failure summaries — use in batch tools instead of error.message)
 ├─ prompts/                   # MCP prompts (productivity-analysis)
+├─ skills/                    # Skills served over MCP (`io.modelcontextprotocol/skills`): one module per skill holding its SKILL.md as a string; skills.ts lists them in `registeredSkills` and serves them through the SDK's SkillsExtension
 ├─ middleware/                # require-trusted-host (Host/Origin allowlist, DNS-rebinding protection), require-valid-todoist-token (HTTP auth)
 ├─ mcp-apps/                  # React UI widgets (task list). Built separately. Ignore unless task mentions widgets.
 ├─ tools/                     # 40+ tool definitions. One file = one tool. Each <tool>.test.ts sits alongside its tool; snapshots in tools/__snapshots__/. See catalog.
@@ -65,6 +66,7 @@ src/
     - instantiates a shared tracked `TodoistApi` client via `usage-tracking.ts`,
     - iterates `registeredTools` from `tool-registry.ts` and calls
       `registerTool({ tool, server, client, features })` from `mcp-helpers.ts`,
+    - attaches the skills (`registerSkills` in `src/skills/skills.ts`),
     - registers the `productivity-analysis` prompt,
     - returns the configured `McpServer`.
 3. `registerTool()` hands the tool to `@todoist/mcp-core`'s `createToolRegistrar`,

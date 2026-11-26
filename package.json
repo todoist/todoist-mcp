@@ -78,7 +78,7 @@
     },
     "peerDependencies": {
         "@modelcontextprotocol/node": "^2.1.0",
-        "@modelcontextprotocol/server": "^2.2.0"
+        "@modelcontextprotocol/server": "^2.4.0"
     },
     "devDependencies": {
         "@anthropic-ai/sdk": "0.137.0",
