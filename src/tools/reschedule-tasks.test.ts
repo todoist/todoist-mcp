@@ -633,4 +633,36 @@ describe('buildRescheduleDate', () => {
         })
         expect(result).toBe('2026-03-20T14:00:00')
     })
+
+    it.each([
+        {
+            local: '9pm Dec 10 in New York',
+            date: '2026-12-11T02:00:00Z',
+            timezone: 'America/New_York',
+            inputDate: '2026-12-12',
+            expected: '2026-12-13T02:00:00Z',
+        },
+        {
+            local: '3pm Dec 10 in New York, moved into daylight saving time',
+            date: '2026-12-10T20:00:00Z',
+            timezone: 'America/New_York',
+            inputDate: '2026-06-10',
+            expected: '2026-06-10T19:00:00Z',
+        },
+        {
+            local: '2am Dec 10 at GMT +5:00',
+            date: '2026-12-09T21:00:00Z',
+            timezone: 'GMT +5:00',
+            inputDate: '2026-12-12',
+            expected: '2026-12-11T21:00:00Z',
+        },
+    ])('keeps the local time of $local', ({ date, timezone, inputDate, expected }) => {
+        const result = buildRescheduleDate(inputDate, {
+            date,
+            timezone,
+            string: 'Dec 10 2026',
+            isRecurring: false,
+        })
+        expect(result).toBe(expected)
+    })
 })
