@@ -36,7 +36,7 @@ const scripts = Object.keys(
     ).scripts,
 )
 
-const ROOTED = /^(src|tools|scripts|docs|\.agents|\.github|\.claude|\.codex|\.cursor)\//
+const ROOTED = /^(src|tools|scripts|docs|\.agents|\.github|\.claude|\.codex|\.cursor|\.pi)\//
 const FILE_NAME = /^[\w.-]+\.(md|json|ts|tsx|js|cjs|mjs|sh|yml|yaml)$/
 // A path relative to the document, like `references/test-rules.md` in a skill.
 const RELATIVE_FILE = /^[\w.-]+(\/[\w.-]+)+\.(md|json|ts|sh)$/

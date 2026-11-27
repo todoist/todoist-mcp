@@ -11,7 +11,7 @@ const CI_ENV = { NODE_ENV: 'test', CI: 'true' }
 
 /** Every check `.github/workflows/ci.yml` runs on a pull request, with one shared build. */
 export const VERIFY_STEPS: Step[] = [
-    { name: 'lint', command: bin('oxlint'), args: ['src', 'scripts', '.agents/scripts'] },
+    { name: 'lint', command: bin('oxlint'), args: ['src', 'scripts', '.agents/scripts', '.pi'] },
     { name: 'format', command: bin('oxfmt'), args: ['--check'] },
     { name: 'types', command: bin('tsc'), args: ['--noEmit'] },
     { name: 'types:tools', command: bin('tsc'), args: ['--noEmit', '-p', '.agents/scripts'] },

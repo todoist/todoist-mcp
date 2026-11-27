@@ -29,6 +29,7 @@ TypeScript · ESM-only · Node >=24 · npm >=11 · `zod` v4 for schemas · MCP S
 ├─ AGENTS.md              # Prescriptive rules for people and agents: definition of done, schema design, new-tool checklist
 ├─ CLAUDE.md              # Imports AGENTS.md for Claude Code; nothing else
 ├─ .agents/scripts/          # Agent tooling (verify, git hook guard, push check) and its tests. Not published, like scripts/
+├─ .pi/extensions/        # Push check for Pi (agent-guard.ts), tested from .agents/scripts/
 ├─ docs/agents.md         # How the agent tooling fits together, for the owner
 ├─ CODEBASE.md            # This file — descriptive map
 ├─ package.json           # See Scripts section

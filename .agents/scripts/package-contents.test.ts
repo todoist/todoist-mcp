@@ -8,7 +8,7 @@ import { isolatedEnv, REPO_ROOT } from './lib/test-repo.ts'
 // own folders, and `scripts/`, the repo's developer scripts. Those import from `src/`, which
 // doesn't ship, and need dev dependencies, so they could not run from an installed package; they
 // would only put code that reads credentials into every consumer's node_modules.
-const DEV_ONLY = ['.agents/', '.claude/', '.codex/', '.cursor/', '.tmp/', 'scripts/']
+const DEV_ONLY = ['.agents/', '.claude/', '.codex/', '.cursor/', '.pi/', '.tmp/', 'scripts/']
 
 it('keeps development-only code out of the published package', () => {
     expect(existsSync(join(REPO_ROOT, '.agents/scripts'))).toBe(true)
