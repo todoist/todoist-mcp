@@ -2,7 +2,13 @@ import type { TodoistApi } from '@todoist/sdk'
 import { beforeEach, describe, expect, it, type Mocked, vi } from 'vitest'
 import { formatToolExecutionError } from '../tool-execution-error.js'
 import {
+    createMockFilter,
+    createMockFolder,
+    createMockLabel,
     createMockProject,
+    createMockSection,
+    createMockTask,
+    createMockToolRequest,
     createMockWorkspaceProject,
     mockUnjoinedWorkspaceProject,
 } from '../utils/test-helpers.js'
@@ -12,6 +18,14 @@ import { deleteObject } from './delete-object.js'
 // Mock the Todoist API
 const mockTodoistApi = {
     getProject: vi.fn(),
+    getTask: vi.fn(),
+    getSection: vi.fn(),
+    getComment: vi.fn(),
+    getLabel: vi.fn(),
+    getFolder: vi.fn(),
+    getReminder: vi.fn(),
+    getLocationReminder: vi.fn(),
+    sync: vi.fn(),
     deleteProject: vi.fn(),
     deleteSection: vi.fn(),
     deleteTask: vi.fn(),
@@ -92,7 +106,7 @@ describe(`${DELETE_OBJECT} tool`, () => {
             )
 
             expect(mockTodoistApi.deleteProject).toHaveBeenCalledWith('archived-ws-proj')
-            expect(result.structuredContent.success).toBe(true)
+            expect(result.structuredContent?.success).toBe(true)
         })
 
         it('should explain a 404 for a workspace project the user has not joined', async () => {
@@ -403,6 +417,163 @@ describe(`${DELETE_OBJECT} tool`, () => {
             expect(mockTodoistApi.deleteComment).toHaveBeenCalledTimes(1)
             expect(mockTodoistApi.deleteLabel).toHaveBeenCalledTimes(1)
             expect(mockTodoistApi.deleteFilter).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    // Deleting cannot be undone, so a client that can ask the user does, naming what would go.
+    describe('asking the user first', () => {
+        it('should ask before deleting a task, naming it, and delete nothing yet', async () => {
+            mockTodoistApi.getTask.mockResolvedValue(createMockTask({ content: 'Buy milk' }))
+            const request = createMockToolRequest('asking')
+
+            const result = await deleteObject.execute(
+                { type: 'task', id: '8485093748' },
+                mockTodoistApi,
+                request,
+            )
+
+            expect(request.questions).toEqual([
+                { key: 'delete', message: 'Delete the task "Buy milk"? This can\'t be undone.' },
+            ])
+            expect(result).toEqual({
+                inputRequired: expect.objectContaining({ resultType: 'input_required' }),
+            })
+            expect(mockTodoistApi.deleteTask).not.toHaveBeenCalled()
+        })
+
+        it('should delete once the user confirms', async () => {
+            mockTodoistApi.deleteTask.mockResolvedValue(true)
+
+            const result = await deleteObject.execute(
+                { type: 'task', id: '8485093748' },
+                mockTodoistApi,
+                createMockToolRequest('confirmed'),
+            )
+
+            expect(mockTodoistApi.deleteTask).toHaveBeenCalledWith('8485093748')
+            expect(result.structuredContent).toEqual({
+                deletedEntity: { type: 'task', id: '8485093748' },
+                success: true,
+            })
+        })
+
+        it('should delete nothing when the user declines, and say not to retry', async () => {
+            const result = await deleteObject.execute(
+                { type: 'task', id: '8485093748' },
+                mockTodoistApi,
+                createMockToolRequest('declined'),
+            )
+
+            expect(mockTodoistApi.deleteTask).not.toHaveBeenCalled()
+            expect(result.structuredContent).toEqual({
+                deletedEntity: { type: 'task', id: '8485093748' },
+                success: false,
+            })
+            expect(result.textContent).toBe(
+                "Not deleted: the user declined to delete the task (id=8485093748). Don't try again unless they ask.",
+            )
+        })
+
+        it('should not ask about a workspace project that must be archived first', async () => {
+            mockTodoistApi.getProject.mockResolvedValue(
+                createMockWorkspaceProject({ name: 'Team Plan', isArchived: false }),
+            )
+            const request = createMockToolRequest('asking')
+
+            await expect(
+                deleteObject.execute({ type: 'project', id: 'wp1' }, mockTodoistApi, request),
+            ).rejects.toThrow('must be archived before it can be deleted')
+            expect(request.questions).toEqual([])
+        })
+
+        it.each([
+            {
+                type: 'project' as const,
+                setUp: () =>
+                    mockTodoistApi.getProject.mockResolvedValue(
+                        createMockProject({ name: 'Q3 Plan' }),
+                    ),
+                message:
+                    'Delete the project "Q3 Plan" and everything in it? This can\'t be undone.',
+            },
+            {
+                type: 'section' as const,
+                setUp: () =>
+                    mockTodoistApi.getSection.mockResolvedValue(
+                        createMockSection({ name: 'Backlog' }),
+                    ),
+                message: 'Delete the section "Backlog"? This can\'t be undone.',
+            },
+            {
+                type: 'comment' as const,
+                setUp: () =>
+                    mockTodoistApi.getComment.mockResolvedValue({
+                        content: 'Ship it on Friday',
+                    } as never),
+                message: 'Delete the comment "Ship it on Friday"? This can\'t be undone.',
+            },
+            {
+                type: 'label' as const,
+                setUp: () =>
+                    mockTodoistApi.getLabel.mockResolvedValue(createMockLabel({ name: 'urgent' })),
+                message: 'Delete the label "urgent"? This can\'t be undone.',
+            },
+            {
+                type: 'filter' as const,
+                setUp: () =>
+                    mockTodoistApi.sync.mockResolvedValue({
+                        filters: [createMockFilter({ id: 'f1', name: 'Work today' })],
+                    } as never),
+                message: 'Delete the filter "Work today"? This can\'t be undone.',
+            },
+            {
+                type: 'folder' as const,
+                setUp: () =>
+                    mockTodoistApi.getFolder.mockResolvedValue(
+                        createMockFolder({ name: 'Design' }),
+                    ),
+                message:
+                    'Delete the folder "Design"? Its projects are kept and moved to the top level of the workspace.',
+            },
+            {
+                type: 'reminder' as const,
+                setUp: () => {
+                    mockTodoistApi.getReminder.mockResolvedValue({ itemId: 't1' } as never)
+                    mockTodoistApi.getTask.mockResolvedValue(
+                        createMockTask({ content: 'Pay rent' }),
+                    )
+                },
+                message: 'Delete the reminder on the task "Pay rent"? This can\'t be undone.',
+            },
+            {
+                type: 'location_reminder' as const,
+                setUp: () => {
+                    mockTodoistApi.getLocationReminder.mockResolvedValue({ itemId: 't1' } as never)
+                    mockTodoistApi.getTask.mockResolvedValue(
+                        createMockTask({ content: 'Pay rent' }),
+                    )
+                },
+                message:
+                    'Delete the location reminder on the task "Pay rent"? This can\'t be undone.',
+            },
+        ])('should name the $type it would delete', async ({ type, setUp, message }) => {
+            setUp()
+            const request = createMockToolRequest('asking')
+
+            await deleteObject.execute({ type, id: 'f1' }, mockTodoistApi, request)
+
+            expect(request.questions).toEqual([{ key: 'delete', message }])
+        })
+
+        it('should shorten a long comment in the question', async () => {
+            mockTodoistApi.getComment.mockResolvedValue({ content: 'a'.repeat(200) } as never)
+            const request = createMockToolRequest('asking')
+
+            await deleteObject.execute({ type: 'comment', id: 'c1' }, mockTodoistApi, request)
+
+            expect(request.questions[0]?.message).toBe(
+                `Delete the comment "${'a'.repeat(79)}…"? This can't be undone.`,
+            )
         })
     })
 })

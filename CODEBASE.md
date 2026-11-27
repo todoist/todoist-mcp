@@ -163,7 +163,7 @@ New tool? Full checklist in `AGENTS.md`. Short version: copy `add-tasks.ts`; add
 - `concurrency.ts` — `getMoveLimiter`/`getWriteLimiter` bound how many write requests a batch tool has in flight. Limiters are per account (registered by `createTodoistClient`), because the HTTP transport builds a client per request. Task moves get their own single-slot lane: the API locks a task's whole tree for a move, so overlapping moves contend
 - `move-planner.ts` — `planMove`/`isMoveRedundant`/`destinationKey`: decides whether a requested container change is a real move, and groups tasks bound for the same destination so they can share one request
 - `validate-todoist-token.ts` — token validation (`'valid' | 'invalid' | 'forbidden'`) for the HTTP middleware and for hosts: `@todoist/mcp-core/host`'s `validateBearerToken` against `/api/v1/user`, sent through the SDK's proxy-aware transport
-- `test-helpers.ts` — `createMockTask`, `createMockProject`, `createMockSection`, `createMockTemplate`, `TEST_IDS`, `TODAY`
+- `test-helpers.ts` — `createMockTask`, `createMockProject`, `createMockSection`, `createMockTemplate`, `createMockToolRequest` (a `ToolRequest` whose `confirm` gives a chosen answer and records the question), `TEST_IDS`, `TODAY`
 
 ## Todoist SDK + auth
 

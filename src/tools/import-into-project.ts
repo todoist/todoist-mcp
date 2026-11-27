@@ -1,8 +1,8 @@
-import type { ImportTemplateResponse } from '@todoist/sdk'
+import type { ImportTemplateResponse, TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { ErrorWithContext } from '../tool-execution-error.js'
-import { mapComment, mapTask } from '../tool-helpers.js'
+import { getProjectOrExplain, mapComment, mapTask } from '../tool-helpers.js'
 import {
     CommentSchema,
     SectionSchema,
@@ -94,6 +94,25 @@ function generateTextContent({
     return `Imported ${source} into project (id=${projectId}): ${parts.join(', ')}.`
 }
 
+/** The question put to the user before an import, naming the template and the project. */
+async function describeImport(
+    client: TodoistApi,
+    { projectId, templateId, locale }: { projectId: string; templateId?: string; locale?: string },
+): Promise<string> {
+    const project = await getProjectOrExplain(client, projectId)
+    let source = 'the CSV'
+    if (templateId) {
+        // The name only makes the question clearer: if it cannot be read, the ID still says which.
+        const id = extractTemplateId(templateId)
+        const name = await client
+            .getTemplate(id, locale ? { locale } : undefined)
+            .then((template) => template.name)
+            .catch(() => id)
+        source = `the template "${name}"`
+    }
+    return `Import ${source} into the project "${project.name}"? Its sections, tasks and comments are added to what's already there. This can't be undone.`
+}
+
 const importIntoProject = {
     name: ToolNames.IMPORT_INTO_PROJECT,
     description:
@@ -101,11 +120,23 @@ const importIntoProject = {
     parameters: ArgsSchema,
     outputSchema: OutputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-    async execute({ projectId, templateId, csvFileContent, locale }, client) {
+    async execute({ projectId, templateId, csvFileContent, locale }, client, request?) {
         if (Boolean(templateId) === Boolean(csvFileContent)) {
             throw new Error(
                 'Provide exactly one source: either `templateId` or `csvFileContent`. Find template IDs with find-templates.',
             )
+        }
+
+        const confirmation = (await request?.confirm({
+            key: 'import',
+            message: () => describeImport(client, { projectId, templateId, locale }),
+        })) ?? { status: 'unavailable' }
+        if (confirmation.status === 'asking') return confirmation.result
+        if (confirmation.status === 'declined') {
+            return {
+                textContent: `Nothing imported: the user declined the import into project (id=${projectId}). Don't try again unless they ask.`,
+                structuredContent: { sections: [], tasks: [], comments: [], totalCount: 0 },
+            }
         }
 
         // A model that just created the project with add-projects needs to know which

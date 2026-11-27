@@ -2,7 +2,7 @@ import { Client, InMemoryTransport } from '@modelcontextprotocol/client'
 import { TodoistApi } from '@todoist/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getMcpServer } from './mcp-server.js'
-import { createMockUser } from './utils/test-helpers.js'
+import { createMockTask, createMockUser } from './utils/test-helpers.js'
 
 // Claude Code cuts server instructions, and the description of any tool it loads upfront, at this
 // many characters, and the model sees only the text before the cut:
@@ -127,5 +127,66 @@ describe('server info', () => {
             await client.close()
             await server.close()
         }
+    })
+})
+
+// A client that can show a form gets asked before a delete, through the same retry, usage tracking
+// and result rewriting every Todoist tool call goes through.
+describe('confirming a delete over MCP', () => {
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    async function deleteTaskAnswering(answer: 'confirm' | 'decline') {
+        vi.spyOn(TodoistApi.prototype, 'getTask').mockResolvedValue(
+            createMockTask({ content: 'Buy milk' }),
+        )
+        const deleteTask = vi.spyOn(TodoistApi.prototype, 'deleteTask').mockResolvedValue(true)
+        const questions: string[] = []
+
+        const server = getMcpServer({ token: 'test-token' })
+        const client = new Client(
+            { name: 'mcp-server-test', version: '1.0.0' },
+            { capabilities: { elicitation: {} } },
+        )
+        client.setRequestHandler('elicitation/create', async (request) => {
+            questions.push(request.params.message)
+            return answer === 'confirm'
+                ? { action: 'accept', content: { confirm: true } }
+                : { action: 'decline' }
+        })
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+        await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
+        try {
+            const result = await client.callTool({
+                name: 'delete-object',
+                arguments: { type: 'task', id: '8485093748' },
+            })
+            return { questions, deleteTask, structuredContent: result.structuredContent }
+        } finally {
+            await client.close()
+            await server.close()
+        }
+    }
+
+    it('should delete the task once the user confirms', async () => {
+        const { questions, deleteTask, structuredContent } = await deleteTaskAnswering('confirm')
+
+        expect(questions).toEqual(['Delete the task "Buy milk"? This can\'t be undone.'])
+        expect(deleteTask).toHaveBeenCalledTimes(1)
+        expect(structuredContent).toEqual({
+            deletedEntity: { type: 'task', id: '8485093748' },
+            success: true,
+        })
+    })
+
+    it('should delete nothing when the user declines', async () => {
+        const { deleteTask, structuredContent } = await deleteTaskAnswering('decline')
+
+        expect(deleteTask).not.toHaveBeenCalled()
+        expect(structuredContent).toEqual({
+            deletedEntity: { type: 'task', id: '8485093748' },
+            success: false,
+        })
     })
 })

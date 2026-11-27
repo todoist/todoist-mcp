@@ -5,8 +5,11 @@ import { formatToolExecutionError } from '../tool-execution-error.js'
 import { executeWithRetry } from '../utils/retry.js'
 import {
     createApiError,
+    createMockProject,
     createMockSection,
     createMockTask,
+    createMockTemplate,
+    createMockToolRequest,
     getAdvertisedPattern,
     TEST_IDS,
 } from '../utils/test-helpers.js'
@@ -14,6 +17,8 @@ import { ToolNames } from '../utils/tool-names.js'
 import { importIntoProject } from './import-into-project.js'
 
 const mockTodoistApi = {
+    getProject: vi.fn(),
+    getTemplate: vi.fn(),
     importTemplateFromId: vi.fn(),
     importCsvIntoProject: vi.fn(),
 } as unknown as Mocked<TodoistApi>
@@ -326,6 +331,117 @@ describe(`${IMPORT_INTO_PROJECT} tool`, () => {
             expect(result.error?.issues[0]?.message).toBe(
                 'Pass a template slug ("product-launch"), a template ID ("UT_..."), or an https URL on todoist.com or one of its subdomains.',
             )
+        })
+    })
+
+    // An import writes into a project the user already has and cannot be undone, so a client that
+    // can ask the user does, naming the template and the project.
+    describe('asking the user first', () => {
+        beforeEach(() => {
+            mockTodoistApi.getProject.mockResolvedValue(createMockProject({ name: 'Q3 Plan' }))
+        })
+
+        it('should ask before importing a template, naming it and the project, and import nothing yet', async () => {
+            mockTodoistApi.getTemplate.mockResolvedValue(
+                createMockTemplate({ name: 'Launch plan' }),
+            )
+            const request = createMockToolRequest('asking')
+
+            const result = await importIntoProject.execute(
+                { projectId: TEST_IDS.PROJECT_TEST, templateId: 'UT_28Ex1' },
+                mockTodoistApi,
+                request,
+            )
+
+            expect(request.questions).toEqual([
+                {
+                    key: 'import',
+                    message:
+                        'Import the template "Launch plan" into the project "Q3 Plan"? Its sections, tasks and comments are added to what\'s already there. This can\'t be undone.',
+                },
+            ])
+            expect(result).toEqual({
+                inputRequired: expect.objectContaining({ resultType: 'input_required' }),
+            })
+            expect(mockTodoistApi.importTemplateFromId).not.toHaveBeenCalled()
+        })
+
+        it('should name the template by its ID when its details cannot be read', async () => {
+            mockTodoistApi.getTemplate.mockRejectedValue(new Error('not found'))
+            const request = createMockToolRequest('asking')
+
+            await importIntoProject.execute(
+                { projectId: TEST_IDS.PROJECT_TEST, templateId: 'product-launch' },
+                mockTodoistApi,
+                request,
+            )
+
+            expect(request.questions[0]?.message).toBe(
+                'Import the template "product-launch" into the project "Q3 Plan"? Its sections, tasks and comments are added to what\'s already there. This can\'t be undone.',
+            )
+        })
+
+        it('should ask before importing CSV content', async () => {
+            const request = createMockToolRequest('asking')
+
+            await importIntoProject.execute(
+                { projectId: TEST_IDS.PROJECT_TEST, csvFileContent: 'TYPE,CONTENT\ntask,Write' },
+                mockTodoistApi,
+                request,
+            )
+
+            expect(request.questions[0]?.message).toBe(
+                'Import the CSV into the project "Q3 Plan"? Its sections, tasks and comments are added to what\'s already there. This can\'t be undone.',
+            )
+            expect(mockTodoistApi.importCsvIntoProject).not.toHaveBeenCalled()
+        })
+
+        it('should import once the user confirms', async () => {
+            mockTodoistApi.importTemplateFromId.mockResolvedValue(createImportResponse())
+
+            await importIntoProject.execute(
+                { projectId: TEST_IDS.PROJECT_TEST, templateId: 'product-launch' },
+                mockTodoistApi,
+                createMockToolRequest('confirmed'),
+            )
+
+            expect(mockTodoistApi.importTemplateFromId).toHaveBeenCalledWith({
+                projectId: TEST_IDS.PROJECT_TEST,
+                templateId: 'product-launch',
+                locale: undefined,
+            })
+        })
+
+        it('should import nothing when the user declines, and say not to retry', async () => {
+            const result = await importIntoProject.execute(
+                { projectId: TEST_IDS.PROJECT_TEST, templateId: 'product-launch' },
+                mockTodoistApi,
+                createMockToolRequest('declined'),
+            )
+
+            expect(mockTodoistApi.importTemplateFromId).not.toHaveBeenCalled()
+            expect(result.structuredContent).toEqual({
+                sections: [],
+                tasks: [],
+                comments: [],
+                totalCount: 0,
+            })
+            expect(result.textContent).toBe(
+                `Nothing imported: the user declined the import into project (id=${TEST_IDS.PROJECT_TEST}). Don't try again unless they ask.`,
+            )
+        })
+
+        it('should not ask when the call names no source', async () => {
+            const request = createMockToolRequest('asking')
+
+            await expect(
+                importIntoProject.execute(
+                    { projectId: TEST_IDS.PROJECT_TEST },
+                    mockTodoistApi,
+                    request,
+                ),
+            ).rejects.toThrow('Provide exactly one source')
+            expect(request.questions).toEqual([])
         })
     })
 })

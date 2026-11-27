@@ -68,6 +68,15 @@ A tool that writes a list of items settles each item on its own and returns the 
 
 `src/tools/batch-failures-contract.test.ts` enforces this for every non-read-only tool with a list parameter. The exceptions, including tools not converted yet, are listed there with the reason for each.
 
+### Ask before a write that cannot be undone
+
+`delete-object` and `import-into-project` ask the user to confirm before they write, through `request.confirm` from `@todoist/mcp-core` (the third argument of `execute`). A client that can show a form puts the question to the user; one that cannot gets `unavailable`, and the tool acts as it did before. Follow them for a new tool whose write cannot be undone:
+
+- Declare `request?` optional, so the tool can still be called with two arguments.
+- Run every check that can refuse the call before `confirm`, and write nothing before it: the tool runs from the top again once the user answers.
+- Pass `message` as a function when naming the object costs a lookup; it is built only when the question is asked.
+- On `declined`, return a normal result that writes nothing and tells the model not to try again.
+
 ### Input schemas: cap every array, type every branch
 
 Directory reviews (Gemini Connected Apps) read the advertised input schemas, as does every model filling a call.

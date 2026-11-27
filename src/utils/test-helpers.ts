@@ -1,3 +1,5 @@
+import { inputRequired } from '@modelcontextprotocol/server'
+import type { Confirmation, ToolRequest } from '@todoist/mcp-core'
 import type {
     CurrentUser,
     CustomFetchResponse,
@@ -649,5 +651,29 @@ export function createMockUser(overrides: Partial<CurrentUser> = {}): CurrentUse
         avatarS640: null,
         avatarSmall: null,
         ...overrides,
+    }
+}
+
+/**
+ * A `ToolRequest` whose `confirm` answers `status`, standing in for the MCP call a tool serves.
+ * `questions` records each question it was asked to put to the user, with a lazy message built.
+ */
+export function createMockToolRequest(status: Confirmation['status']): ToolRequest & {
+    questions: { key: string; message: string }[]
+} {
+    const questions: { key: string; message: string }[] = []
+    return {
+        questions,
+        async confirm({ key, message }) {
+            if (status !== 'asking') return { status }
+            questions.push({
+                key,
+                message: typeof message === 'function' ? await message() : message,
+            })
+            return {
+                status: 'asking',
+                result: { inputRequired: inputRequired({ requestState: `asking:${key}` }) },
+            }
+        },
     }
 }
