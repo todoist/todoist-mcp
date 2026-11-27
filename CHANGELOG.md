@@ -1,3 +1,9 @@
+## [19.1.1](https://github.com/todoist/todoist-mcp/compare/v19.1.0...v19.1.1) (2026-11-27)
+
+### Bug Fixes
+
+* name the item by ID when a confirmation lookup fails ([#783](https://github.com/todoist/todoist-mcp/issues/783)) ([2771fd0](https://github.com/todoist/todoist-mcp/commit/2771fd0d864cd15b4c0d1ce2594a083b9be430dc))
+
 ## [19.1.0](https://github.com/todoist/todoist-mcp/compare/v19.0.0...v19.1.0) (2026-11-27)
 
 ### Features
