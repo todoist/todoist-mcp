@@ -140,8 +140,6 @@ jobs:
                   audience: thread
               continue-on-error: true
 
-            # Same setup as comms-mcp and automations. The org refuses fine-grained
-            # personal access tokens that live longer than 90 days.
             - name: Generate todoist-ai-integrations token
               id: integrations_token
               if: ${{ steps.announcement.outputs.should_announce == 'true' }}
