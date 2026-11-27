@@ -665,4 +665,17 @@ describe('buildRescheduleDate', () => {
         })
         expect(result).toBe(expected)
     })
+
+    it.each(['2026-02-30', '2026-13-01'])(
+        'passes the invalid date %s through for the API to reject',
+        (inputDate) => {
+            const result = buildRescheduleDate(inputDate, {
+                date: '2026-12-11T02:00:00Z',
+                timezone: 'America/New_York',
+                string: 'Dec 10 2026',
+                isRecurring: false,
+            })
+            expect(result).toBe(`${inputDate}T02:00:00Z`)
+        },
+    )
 })

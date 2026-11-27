@@ -205,6 +205,12 @@ function moveFixedDateTime(
 
     const localTime = new Date(existing + existingOffset * 60_000).toISOString().slice(11, 19)
     const targetAsUtc = Date.parse(`${inputDate}T${localTime}Z`)
+    if (
+        Number.isNaN(targetAsUtc) ||
+        new Date(targetAsUtc).toISOString().slice(0, 10) !== inputDate
+    ) {
+        return undefined
+    }
     const targetOffset =
         getUtcOffsetMinutes(timezone, targetAsUtc - existingOffset * 60_000) ?? existingOffset
     return `${new Date(targetAsUtc - targetOffset * 60_000).toISOString().slice(0, 19)}Z`
