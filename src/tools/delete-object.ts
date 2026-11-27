@@ -2,6 +2,7 @@ import { isWorkspaceProject, type TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
 import { getProjectOrExplain } from '../tool-helpers.js'
+import { filterResolver } from '../utils/filter-resolver.js'
 import { ToolNames } from '../utils/tool-names.js'
 
 const entityTypes = [
@@ -57,10 +58,13 @@ async function describeDeletion(
         case 'label':
             return `Delete the label "${(await client.getLabel(id)).name}"? ${CANNOT_UNDO}`
         case 'filter': {
-            const { filters } = await client.sync({ resourceTypes: ['filters'], syncToken: '*' })
-            const filter = filters?.find((candidate) => candidate.id === id)
-            return filter
-                ? `Delete the filter "${filter.name}"? ${CANNOT_UNDO}`
+            // The resolver also matches by name, so only an exact ID match names the filter.
+            const name = await filterResolver.resolveFilter(client, id).then(
+                (filter) => (filter.filterId === id ? filter.filterName : undefined),
+                () => undefined,
+            )
+            return name
+                ? `Delete the filter "${name}"? ${CANNOT_UNDO}`
                 : `Delete the filter (id=${id})? ${CANNOT_UNDO}`
         }
         case 'folder':

@@ -455,6 +455,8 @@ describe(`${DELETE_OBJECT} tool`, () => {
                 deletedEntity: { type: 'task', id: '8485093748' },
                 success: true,
             })
+            // The name is looked up only to ask, not again on the call carrying the answer.
+            expect(mockTodoistApi.getTask).not.toHaveBeenCalled()
         })
 
         it('should delete nothing when the user declines, and say not to retry', async () => {
@@ -563,6 +565,24 @@ describe(`${DELETE_OBJECT} tool`, () => {
             await deleteObject.execute({ type, id: 'f1' }, mockTodoistApi, request)
 
             expect(request.questions).toEqual([{ key: 'delete', message }])
+        })
+
+        it('should name a filter it cannot find by its ID', async () => {
+            mockTodoistApi.sync.mockResolvedValue({ filters: [] } as never)
+            const request = createMockToolRequest('asking')
+
+            await deleteObject.execute(
+                { type: 'filter', id: 'gone-filter' },
+                mockTodoistApi,
+                request,
+            )
+
+            expect(request.questions).toEqual([
+                {
+                    key: 'delete',
+                    message: "Delete the filter (id=gone-filter)? This can't be undone.",
+                },
+            ])
         })
 
         it('should shorten a long comment in the question', async () => {

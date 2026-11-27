@@ -410,6 +410,9 @@ describe(`${IMPORT_INTO_PROJECT} tool`, () => {
                 templateId: 'product-launch',
                 locale: undefined,
             })
+            // The names are looked up only to ask, not again on the call carrying the answer.
+            expect(mockTodoistApi.getProject).not.toHaveBeenCalled()
+            expect(mockTodoistApi.getTemplate).not.toHaveBeenCalled()
         })
 
         it('should import nothing when the user declines, and say not to retry', async () => {

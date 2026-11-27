@@ -99,17 +99,17 @@ async function describeImport(
     client: TodoistApi,
     { projectId, templateId, locale }: { projectId: string; templateId?: string; locale?: string },
 ): Promise<string> {
-    const project = await getProjectOrExplain(client, projectId)
-    let source = 'the CSV'
-    if (templateId) {
+    const [project, templateName] = await Promise.all([
+        getProjectOrExplain(client, projectId),
         // The name only makes the question clearer: if it cannot be read, the ID still says which.
-        const id = extractTemplateId(templateId)
-        const name = await client
-            .getTemplate(id, locale ? { locale } : undefined)
-            .then((template) => template.name)
-            .catch(() => id)
-        source = `the template "${name}"`
-    }
+        templateId
+            ? client
+                  .getTemplate(extractTemplateId(templateId), locale ? { locale } : undefined)
+                  .then((template) => template.name)
+                  .catch(() => extractTemplateId(templateId))
+            : undefined,
+    ])
+    const source = templateName ? `the template "${templateName}"` : 'the CSV'
     return `Import ${source} into the project "${project.name}"? Its sections, tasks and comments are added to what's already there. This can't be undone.`
 }
 

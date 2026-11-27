@@ -137,7 +137,8 @@ describe('confirming a delete over MCP', () => {
         vi.restoreAllMocks()
     })
 
-    async function deleteTaskAnswering(answer: 'confirm' | 'decline') {
+    /** Deletes a task over MCP with a client that confirms, declines, or cannot show a form. */
+    async function deleteTaskAnswering(answer: 'confirm' | 'decline' | 'cannot ask') {
         vi.spyOn(TodoistApi.prototype, 'getTask').mockResolvedValue(
             createMockTask({ content: 'Buy milk' }),
         )
@@ -147,14 +148,16 @@ describe('confirming a delete over MCP', () => {
         const server = getMcpServer({ token: 'test-token' })
         const client = new Client(
             { name: 'mcp-server-test', version: '1.0.0' },
-            { capabilities: { elicitation: {} } },
+            answer === 'cannot ask' ? {} : { capabilities: { elicitation: {} } },
         )
-        client.setRequestHandler('elicitation/create', async (request) => {
-            questions.push(request.params.message)
-            return answer === 'confirm'
-                ? { action: 'accept', content: { confirm: true } }
-                : { action: 'decline' }
-        })
+        if (answer !== 'cannot ask') {
+            client.setRequestHandler('elicitation/create', async (request) => {
+                questions.push(request.params.message)
+                return answer === 'confirm'
+                    ? { action: 'accept', content: { confirm: true } }
+                    : { action: 'decline' }
+            })
+        }
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
         await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
         try {
@@ -187,6 +190,18 @@ describe('confirming a delete over MCP', () => {
         expect(structuredContent).toEqual({
             deletedEntity: { type: 'task', id: '8485093748' },
             success: false,
+        })
+    })
+
+    // A client that cannot show a form must still be able to delete, as it could before.
+    it('should delete without asking when the client cannot ask', async () => {
+        const { questions, deleteTask, structuredContent } = await deleteTaskAnswering('cannot ask')
+
+        expect(questions).toEqual([])
+        expect(deleteTask).toHaveBeenCalledTimes(1)
+        expect(structuredContent).toEqual({
+            deletedEntity: { type: 'task', id: '8485093748' },
+            success: true,
         })
     })
 })
