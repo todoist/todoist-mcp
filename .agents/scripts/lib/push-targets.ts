@@ -22,6 +22,9 @@ import { readCommands, type ShellItem } from './shell-commands.ts'
  * - `implicit`: a push with no refspec, so git's settings decide what it sends, to `remote` (null
  *   when the command names none).
  * - `tags`: the push also sends every tag (`--tags`), which only the repository can list.
+ * - `followTags`: what the command says about sending the annotated tags the pushed commits reach
+ *   (`--follow-tags`, `--no-follow-tags`, or an inline `push.followTags`). Unset, git's settings
+ *   decide.
  */
 export type PushTarget = {
     kind: 'push' | 'pr' | 'commit' | 'stage' | 'create' | 'move'
@@ -30,6 +33,7 @@ export type PushTarget = {
     implicit?: boolean
     remote?: string | null
     tags?: boolean
+    followTags?: boolean
     force?: boolean
     switches?: boolean
     stages?: Staged
@@ -287,6 +291,7 @@ function readGit(
     // An inline `push.*`, `remote.*` or `branch.*` setting can change what a push with no refspec
     // sends, or where. A refspec in the command wins over them, as in git.
     let configured = false
+    let followTags: boolean | undefined
     for (; i < words.length; i++) {
         const word = words[i] as string
         if (word === '-C') inDir = resolveDir(inDir, words[++i] ?? '')
@@ -296,6 +301,10 @@ function readGit(
                 ? word.slice('--config-env='.length)
                 : (words[++i] ?? '')
             if (/^(push|remote|branch)\./i.test(setting)) configured = true
+            const follow = /^push\.followtags(?:=(.*))?$/i.exec(setting)
+            // `--config-env` names a variable, whose value the command doesn't show.
+            if (follow)
+                followTags = word !== '-c' || !/^(false|no|off|0|)$/i.test(follow[1] ?? 'on')
         } else if (word === '--namespace') i++
         else if (word === '--git-dir' || word === '--work-tree') {
             i++
@@ -328,7 +337,11 @@ function readGit(
     }
     if (subcommand !== 'push') return
     const push = readPush(args, configured, extraArgs)
-    if (push) targets.push({ ...push, dir: inDir })
+    if (push === undefined) return
+    // The last of the options wins, and either wins over an inline setting.
+    const option = args.filter((word) => /^--(no-)?follow-tags$/.test(word)).at(-1)
+    if (option !== undefined) followTags = option === '--follow-tags'
+    targets.push({ ...push, dir: inDir, ...(followTags !== undefined && { followTags }) })
 }
 
 /** `git commit` options whose value is the next word, unless given with `=`. */

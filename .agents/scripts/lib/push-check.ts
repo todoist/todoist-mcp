@@ -142,7 +142,11 @@ export function checkCommand({
                 target.implicit && configuredPush(path, target.remote ?? null)
                     ? ['*']
                     : target.sources
-            const sources = target.tags ? [...named, ...newTags(checkout)] : named
+            const sources = target.tags
+                ? [...named, ...newTags(checkout)]
+                : followsTags(path, target)
+                  ? [...named, ...followedTags(checkout, named)]
+                  : named
             for (const source of sources) {
                 const result = checkSource(checkout, source, target.kind)
                 if (result === 'ok') continue
@@ -291,13 +295,51 @@ function newTags(checkout: Checkout): string[] {
 }
 
 /**
+ * Whether a push also sends the annotated tags its commits reach, as the command or
+ * `push.followTags` says.
+ */
+function followsTags(root: string, target: PushTarget): boolean {
+    if (target.followTags !== undefined) return target.followTags
+    const value = git(root, ['config', '--type=bool', '--get', 'push.followTags'])
+    return value.stdout.trim() === 'true'
+}
+
+/**
+ * The tags `--follow-tags` may send with `sources`: the annotated tags the pushed commits reach that
+ * the default branch doesn't already contain. Every such tag when a source can't be resolved.
+ */
+function followedTags(checkout: Checkout, sources: string[]): string[] {
+    const ref = checkout.defaultRef()
+    const args = ['for-each-ref', '--format=%(objecttype) %(refname)']
+    if (ref !== undefined) args.push(`--no-merged=${ref}`)
+    // A branch the command makes holds what's checked out by the time the push runs.
+    const commits = sources.map((source) =>
+        checkout.created.has(branchName(source))
+            ? checkout.head
+            : resolveCommit(checkout.root, source),
+    )
+    if (commits.every((commit) => commit !== undefined)) {
+        for (const commit of commits) args.push(`--merged=${commit}`)
+    }
+    return git(checkout.root, [...args, 'refs/tags'])
+        .stdout.split('\n')
+        .filter((line) => line.startsWith('tag '))
+        .map((line) => line.slice('tag '.length))
+}
+
+/** The branch a source names in full (`refs/heads/x`) or in part (`heads/x`), as git reads them. */
+function branchName(source: string): string {
+    return source.replace(/^(refs\/)?heads\//, '')
+}
+
+/**
  * Whether a commit earlier in the same command moves `source`: HEAD, the branch checked out when it
  * commits, or a branch the command makes after it. A tag, a commit or another branch stays where it
  * was.
  */
 function advancedByCommit(checkout: Checkout, source: string): boolean {
     if (source === 'HEAD' || source === '@') return checkout.advanced.has('HEAD')
-    if (checkout.created.has(source)) return checkout.advanced.has(source)
+    if (checkout.created.has(branchName(source))) return checkout.advanced.has(branchName(source))
     const full = git(checkout.root, ['rev-parse', '--symbolic-full-name', source])
     const name = full.ok ? full.stdout.trim() : ''
     return name.startsWith('refs/heads/') && checkout.advanced.has(name.slice('refs/heads/'.length))
@@ -319,7 +361,7 @@ function checkSource(checkout: Checkout, source: string, kind: 'push' | 'pr'): S
     const { root, notes, head } = checkout
     // A branch forced over an existing one (`git switch -C`) holds what's checked out by the time
     // the push runs. One made without force fails if it exists, so the push sends the old one.
-    const created = checkout.created.get(source)
+    const created = checkout.created.get(branchName(source))
     let commit = created === true ? head : resolveCommit(root, source)
     if (commit === undefined) {
         if (created !== undefined) commit = head
@@ -369,7 +411,13 @@ function onlyUncheckedChanges(
 
 function denyReason(found: Set<SourceResult>, onlyPullRequests: boolean): string {
     const paragraphs: string[] = []
-    if (found.has('every')) {
+    if (found.has('every') && onlyPullRequests) {
+        paragraphs.push(
+            "This opens a pull request for a branch the command doesn't name, a wildcard or what " +
+                "`xargs` adds, so the push check can't tell which. Name the branch instead: `gh pr " +
+                'create --head <branch>`.',
+        )
+    } else if (found.has('every')) {
         paragraphs.push(
             "This pushes every branch at once, the ones a wildcard matches, what git's push " +
                 'settings pick (`remote.<name>.push`, or `push.default=matching`), or what `xargs` ' +
@@ -377,7 +425,12 @@ function denyReason(found: Set<SourceResult>, onlyPullRequests: boolean): string
                 'push origin <branch>`.',
         )
     }
-    if (found.has('unknown')) {
+    if (found.has('unknown') && onlyPullRequests) {
+        paragraphs.push(
+            'This opens a pull request for a branch named by a shell variable, so the push check ' +
+                "can't tell which. Name the branch instead: `gh pr create --head <branch>`.",
+        )
+    } else if (found.has('unknown')) {
         paragraphs.push(
             'This pushes a branch named by a shell variable, or one that does not exist, so the ' +
                 "push check can't tell what it sends. Name each branch instead: `git push origin " +

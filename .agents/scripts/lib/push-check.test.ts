@@ -1,6 +1,6 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { checkCommand, type PushVerdict } from './push-check.ts'
 import { createTempRepo, markVerified as markDirVerified, type TempRepo } from './test-repo.ts'
 
@@ -20,10 +20,12 @@ const markVerified = () => markDirVerified(repo.dir)
 const commitOnBranch = (branch: string, path: string, content?: string) =>
     repo.commitOnBranch(branch, path, content)
 
-/** A linked worktree of the test repo on a new branch, beside it. */
+/** A linked worktree of the test repo on a new branch, beside it, removed when the test ends. */
 function addWorktree(name: string): string {
     const tree = join(dirname(repo.dir), `${repo.dir.split('/').pop()}-${name}`)
     repo.git(['worktree', 'add', '--quiet', '-b', name, tree])
+    // Outside repo.dir, so its cleanup doesn't reach it, even when an assertion fails first.
+    onTestFinished(() => rmSync(tree, { recursive: true, force: true }))
     return tree
 }
 
@@ -177,6 +179,9 @@ describe('pushes it checks', () => {
         repo.git(['switch', '--quiet', 'main'])
         expect(denial('gh pr create --head pull-request --fill')).toContain('opens a pull request')
         expect(denial('gh pr create -Hpull-request --fill')).toContain('opens a pull request')
+        // With advice for a pull request, not a push
+        expect(denial('gh pr create --head "$BRANCH" --fill')).toContain('gh pr create --head')
+        expect(denial('echo x | xargs gh pr create --head')).toContain('gh pr create --head')
     })
 
     it('checks every tag a --tags push sends that main does not already have', () => {
@@ -188,6 +193,29 @@ describe('pushes it checks', () => {
         markVerified()
         expect(denial('git push --tags')).toContain('npm run verify')
         expect(denial('git push origin main --tags')).toContain('npm run verify')
+    })
+
+    it('checks the annotated tags a push following tags sends with its commits', () => {
+        commitOnBranch('feature', 'src/b.ts')
+        repo.git(['tag', '-a', '-m', 'unverified', 'unverified'])
+        commitOnBranch('feature', 'src/c.ts')
+        markVerified()
+        expect(check('git push origin HEAD').decision).toBe('allow')
+        expect(denial('git push --follow-tags origin HEAD')).toContain('npm run verify')
+        expect(denial('git -c push.followTags=true push origin feature')).toContain(
+            'npm run verify',
+        )
+        config('push.followTags', 'true')
+        expect(denial('git push origin HEAD')).toContain('npm run verify')
+        expect(check('git push --no-follow-tags origin HEAD').decision).toBe('allow')
+
+        // Not a lightweight tag, nor one the pushed commits don't reach
+        repo.git(['tag', '-d', 'unverified'])
+        repo.git(['tag', 'light', 'HEAD~1'])
+        commitOnBranch('elsewhere', 'src/d.ts')
+        repo.git(['tag', '-a', '-m', 'elsewhere', 'elsewhere'])
+        repo.git(['switch', '--quiet', 'feature'])
+        expect(check('git push origin HEAD').decision).toBe('allow')
     })
 
     it('checks a push from a subfolder, and one split across lines', () => {
@@ -325,6 +353,8 @@ describe('pushes it stops before reading them', () => {
         for (const command of [
             'git switch -C publish && git push origin publish',
             'git checkout -B publish && git push origin publish',
+            'git switch -C publish && git push origin refs/heads/publish',
+            'git switch -C publish && git push origin heads/publish:publish',
         ]) {
             expect(denial(command), command).toContain(
                 "This pushes code that `npm run verify` hasn't passed.",
@@ -342,6 +372,17 @@ describe('pushes it stops before reading them', () => {
         }
         markVerified()
         expect(check('git switch -C publish && git push origin publish').decision).toBe('allow')
+    })
+
+    it('checks a branch the command makes and commits to, when the push names it in full', () => {
+        commitOnBranch('feature', 'src/b.ts')
+        markVerified()
+        repo.write('src/b.ts', 'export const b = 2\n')
+        expect(
+            denial(
+                'git switch -c fresh && git commit -qam more && git push origin refs/heads/fresh',
+            ),
+        ).toContain('npm run verify')
     })
 
     it('stops a push of a branch named by a variable, or one that does not exist', () => {
@@ -477,6 +518,5 @@ describe('worktrees', () => {
         expect(denial(`git -C '${tree}' push origin HEAD`)).toContain('npm run verify')
         markDirVerified(tree)
         expect(check(`git -C '${tree}' push origin HEAD`).decision).toBe('allow')
-        repo.git(['worktree', 'remove', '--force', tree])
     })
 })

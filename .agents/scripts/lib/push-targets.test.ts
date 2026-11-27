@@ -226,6 +226,18 @@ describe('findTargets', () => {
         ])
     })
 
+    it('marks what a push says about sending the annotated tags its commits reach', () => {
+        const follows = (command: string) => findTargets(command, '/w').at(-1)?.followTags
+        expect(follows('git push --follow-tags origin HEAD')).toBe(true)
+        expect(follows('git push --follow-tags --no-follow-tags origin HEAD')).toBe(false)
+        expect(follows('git -c push.followTags=true push origin feature')).toBe(true)
+        expect(follows('git -c push.followtags push origin feature')).toBe(true)
+        expect(follows('git -c push.followTags=off push origin feature')).toBe(false)
+        expect(follows('git -c push.followTags=false push --follow-tags origin feature')).toBe(true)
+        expect(follows('git --config-env=push.followTags=FOLLOW push origin feature')).toBe(true)
+        expect(follows('git push origin feature')).toBeUndefined()
+    })
+
     it('marks a branch forced over an existing one', () => {
         const created = (command: string) =>
             findTargets(command, '/w').map((target) => [target.sources[0], target.force])
