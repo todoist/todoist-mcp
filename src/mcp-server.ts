@@ -88,6 +88,14 @@ Always provide clear, actionable task titles and descriptions. Use the overview 
 const CATALOGUE_CACHE_HINT = { ttlMs: ONE_HOUR_MS, cacheScope: 'private' } as const
 
 /**
+ * What the server does, sent with its name and version (`serverInfo`). The spec meant this for
+ * people: clients show it in server lists and connector directories. Claude Code does not pass
+ * it to the model, so anything the model needs to pick a tool belongs in `instructions`.
+ */
+const description =
+    'The official Todoist MCP server. Add, update, schedule, complete and search tasks, with priorities, due dates, deadlines, durations, labels and assignees. Organise projects, sections, folders and workspaces. Manage comments and attachments, saved filters, reminders and templates. Find collaborators, check or set your status, and review activity, project health and productivity stats.'
+
+/**
  * Create the MCP server.
  * @param token - The user's Todoist API token.
  * @param baseUrl - The base URL for the todoist API.
@@ -103,7 +111,7 @@ function getMcpServer({
     features?: Features
 }) {
     const server = new McpServer(
-        { name: 'todoist-mcp-server', version: TODOIST_MCP_VERSION },
+        { name: 'todoist-mcp-server', version: TODOIST_MCP_VERSION, description },
         {
             capabilities: {
                 tools: { listChanged: true },

@@ -76,3 +76,25 @@ describe('productivity-analysis prompt', () => {
         }
     })
 })
+
+describe('server info', () => {
+    // The description tells a client what the server is for before any tool is listed or called,
+    // in a server list, a connector directory, or as context it gives its model.
+    it('should describe what the server does', async () => {
+        const server = getMcpServer({ token: 'test-token' })
+        const client = new Client({ name: 'mcp-server-test', version: '1.0.0' })
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+        await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
+        try {
+            expect(client.getServerVersion()).toEqual(
+                expect.objectContaining({
+                    name: 'todoist-mcp-server',
+                    description: expect.stringMatching(/^The official Todoist MCP server\./),
+                }),
+            )
+        } finally {
+            await client.close()
+            await server.close()
+        }
+    })
+})
