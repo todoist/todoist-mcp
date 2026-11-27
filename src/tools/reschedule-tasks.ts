@@ -6,7 +6,7 @@ import { formatBatchItemError } from '../tool-execution-error.js'
 import { mapTask } from '../tool-helpers.js'
 import { logBatchFailures, partitionSettled } from '../utils/batch-failures.js'
 import { BatchLimits } from '../utils/constants.js'
-import { parseGmtOffsetToMinutes } from '../utils/date.js'
+import { getZoneOffsetMinutes, parseGmtOffsetToMinutes } from '../utils/date.js'
 import { parseItemDuration } from '../utils/duration-parser.js'
 import { FailureSchema, TaskSchema as TaskOutputSchema } from '../utils/output-schemas.js'
 import { appendFailureSummary, summarizeTaskOperation } from '../utils/response-builders.js'
@@ -199,17 +199,14 @@ function moveFixedDateTime(
     utcDate: string,
     timezone: string,
 ): string | undefined {
-    const existing = new Date(utcDate)
+    const existing = Date.parse(utcDate)
     const existingOffset = getUtcOffsetMinutes(timezone, existing)
     if (existingOffset === undefined) return undefined
 
-    const localTime = new Date(existing.getTime() + existingOffset * 60_000)
-        .toISOString()
-        .slice(11, 19)
+    const localTime = new Date(existing + existingOffset * 60_000).toISOString().slice(11, 19)
     const targetAsUtc = Date.parse(`${inputDate}T${localTime}Z`)
     const targetOffset =
-        getUtcOffsetMinutes(timezone, new Date(targetAsUtc - existingOffset * 60_000)) ??
-        existingOffset
+        getUtcOffsetMinutes(timezone, targetAsUtc - existingOffset * 60_000) ?? existingOffset
     return `${new Date(targetAsUtc - targetOffset * 60_000).toISOString().slice(0, 19)}Z`
 }
 
@@ -219,23 +216,13 @@ const FIXED_OFFSET_TIMEZONE = /^GMT ([+-])(\d{1,2}):(\d{2})$/
  * Returns the UTC offset of `timezone` at `instant`, in minutes.
  * Accepts IANA names (`America/New_York`) and fixed offsets (`GMT +5:00`), and returns `undefined` for anything else.
  */
-function getUtcOffsetMinutes(timezone: string, instant: Date): number | undefined {
+function getUtcOffsetMinutes(timezone: string, instant: number): number | undefined {
     const fixedOffset = FIXED_OFFSET_TIMEZONE.exec(timezone)
     if (fixedOffset) {
         const [, sign, hours, minutes] = fixedOffset
         return parseGmtOffsetToMinutes(`${sign}${hours?.padStart(2, '0')}:${minutes}`)
     }
-    try {
-        const offsetName = new Intl.DateTimeFormat('en-US', {
-            timeZone: timezone,
-            timeZoneName: 'longOffset',
-        })
-            .formatToParts(instant)
-            .find((part) => part.type === 'timeZoneName')?.value
-        return offsetName === undefined ? undefined : parseGmtOffsetToMinutes(offsetName.slice(3))
-    } catch {
-        return undefined
-    }
+    return getZoneOffsetMinutes(instant, timezone)
 }
 
 export { buildRescheduleDate, rescheduleTasks }

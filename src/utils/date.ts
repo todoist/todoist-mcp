@@ -85,7 +85,7 @@ function formatGmtOffset(offsetMinutes: number): string {
  * Minutes east of UTC that `timeZone` observes at `instant`, or undefined when the
  * runtime does not know the zone.
  */
-function getZoneOffsetMinutes(instant: number, timeZone: string): number | undefined {
+export function getZoneOffsetMinutes(instant: number, timeZone: string): number | undefined {
     try {
         const zoneName = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
             .formatToParts(instant)
