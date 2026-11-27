@@ -1,6 +1,7 @@
 import type { TodoistApi } from '@todoist/sdk'
 import { afterEach, beforeEach, describe, expect, it, type Mocked, vi } from 'vitest'
 import { formatToolExecutionError } from '../tool-execution-error.js'
+import { filterResolver } from '../utils/filter-resolver.js'
 import {
     createMockFilter,
     createMockFolder,
@@ -44,6 +45,7 @@ const { DELETE_OBJECT } = ToolNames
 describe(`${DELETE_OBJECT} tool`, () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        filterResolver.clearCache()
     })
 
     describe('deleting projects', () => {
@@ -567,8 +569,12 @@ describe(`${DELETE_OBJECT} tool`, () => {
             expect(request.questions).toEqual([{ key: 'delete', message }])
         })
 
-        it('should name a filter it cannot find by its ID', async () => {
-            mockTodoistApi.sync.mockResolvedValue({ filters: [] } as never)
+        // A filter named like the ID is not the one being deleted.
+        it('should name a filter it cannot find by its ID, without logging a failure', async () => {
+            mockTodoistApi.sync.mockResolvedValue({
+                filters: [createMockFilter({ id: 'f1', name: 'gone-filter' })],
+            } as never)
+            const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
             const request = createMockToolRequest('asking')
 
             await deleteObject.execute(
@@ -583,6 +589,8 @@ describe(`${DELETE_OBJECT} tool`, () => {
                     message: "Delete the filter (id=gone-filter)? This can't be undone.",
                 },
             ])
+            expect(consoleError).not.toHaveBeenCalled()
+            consoleError.mockRestore()
         })
 
         // The name only makes the question clearer: a lookup that fails must not stop a delete.
@@ -622,6 +630,12 @@ describe(`${DELETE_OBJECT} tool`, () => {
                         mockTodoistApi.getLabel.mockRejectedValue(new Error('Bad Gateway')),
                     deleteCall: () => mockTodoistApi.deleteLabel,
                     message: "Delete the label (id=x1)? This can't be undone.",
+                },
+                {
+                    type: 'filter' as const,
+                    setUp: () => mockTodoistApi.sync.mockRejectedValue(new Error('Bad Gateway')),
+                    deleteCall: () => mockTodoistApi.deleteFilter,
+                    message: "Delete the filter (id=x1)? This can't be undone.",
                 },
                 {
                     type: 'folder' as const,

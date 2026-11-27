@@ -1,7 +1,7 @@
 import { isWorkspaceProject, type TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { formatBatchItemError } from '../tool-execution-error.js'
+import { logFailedLookup } from '../tool-execution-error.js'
 import { getProjectOrExplain } from '../tool-helpers.js'
 import { filterResolver } from '../utils/filter-resolver.js'
 import { ToolNames } from '../utils/tool-names.js'
@@ -61,13 +61,10 @@ async function nameDeletion(
             return `the comment "${quote((await client.getComment(id)).content)}"`
         case 'label':
             return `the label "${(await client.getLabel(id)).name}"`
-        case 'filter':
-            // The resolver also matches by name, so only an exact ID match names the filter.
-            return filterResolver.resolveFilter(client, id).then(
-                (filter) =>
-                    filter.filterId === id ? `the filter "${filter.filterName}"` : undefined,
-                () => undefined,
-            )
+        case 'filter': {
+            const filter = await filterResolver.findById(client, id)
+            return filter ? `the filter "${filter.name}"` : undefined
+        }
         case 'folder':
             return `the folder "${(await client.getFolder(id)).name}"`
         case 'reminder': {
@@ -91,13 +88,9 @@ async function describeDeletion(
     type: Exclude<EntityType, 'project'>,
     id: string,
 ): Promise<string> {
-    const named = await nameDeletion(client, type, id).catch((error: unknown) => {
-        console.error(`${ToolNames.DELETE_OBJECT}: could not look up the ${type} to name it`, {
-            id,
-            error: formatBatchItemError(error),
-        })
-        return undefined
-    })
+    const named = await nameDeletion(client, type, id).catch(
+        logFailedLookup(ToolNames.DELETE_OBJECT, type, id),
+    )
     const subject = named ?? `the ${type.replace('_', ' ')} (id=${id})`
     const outcome =
         type === 'folder'

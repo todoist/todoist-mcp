@@ -676,6 +676,24 @@ export function formatBatchItemError(error: unknown): string {
     return hint ? `${summary}. ${hint.text}` : summary
 }
 
+/**
+ * Handles a failed lookup made only to word a question, such as the name of what a tool is about
+ * to delete: logs it and leaves the name out, so the question names the item by its ID instead.
+ */
+export function logFailedLookup(
+    tool: string,
+    what: string,
+    id: string,
+): (error: unknown) => undefined {
+    return (error) => {
+        console.error(`${tool}: could not look up the ${what} to name it`, {
+            id,
+            error: formatBatchItemError(error),
+        })
+        return undefined
+    }
+}
+
 /** One item's failure, with the explanation of its error tag kept apart. */
 type BatchItemErrorDescription = {
     /** The error with its API signals: `Message (HTTP 403, tag PREMIUM_ONLY)`. */

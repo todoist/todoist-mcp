@@ -1,11 +1,7 @@
 import type { ImportTemplateResponse, TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import {
-    ErrorWithContext,
-    formatBatchItemError,
-    ProjectAccessError,
-} from '../tool-execution-error.js'
+import { ErrorWithContext, logFailedLookup, ProjectAccessError } from '../tool-execution-error.js'
 import { getProjectOrExplain, mapComment, mapTask } from '../tool-helpers.js'
 import {
     CommentSchema,
@@ -98,20 +94,6 @@ function generateTextContent({
     return `Imported ${source} into project (id=${projectId}): ${parts.join(', ')}.`
 }
 
-/** Handles a failed lookup for the question's wording: logs it and leaves the name out. */
-function logFailedLookup(what: 'project' | 'template', id: string): (error: unknown) => undefined {
-    return (error) => {
-        console.error(
-            `${ToolNames.IMPORT_INTO_PROJECT}: could not look up the ${what} to name it`,
-            {
-                id,
-                error: formatBatchItemError(error),
-            },
-        )
-        return undefined
-    }
-}
-
 /**
  * The question put to the user before an import, naming the template and the project. The names
  * only make the question clearer, so a lookup that fails is logged and the question names the
@@ -127,7 +109,7 @@ async function describeImport(
             (project) => project.name,
             (error: unknown) => {
                 if (error instanceof ProjectAccessError) throw error
-                return logFailedLookup('project', projectId)(error)
+                return logFailedLookup(ToolNames.IMPORT_INTO_PROJECT, 'project', projectId)(error)
             },
         ),
         templateId
@@ -135,7 +117,11 @@ async function describeImport(
                   .getTemplate(extractTemplateId(templateId), locale ? { locale } : undefined)
                   .then(
                       (template) => template.name,
-                      logFailedLookup('template', extractTemplateId(templateId)),
+                      logFailedLookup(
+                          ToolNames.IMPORT_INTO_PROJECT,
+                          'template',
+                          extractTemplateId(templateId),
+                      ),
                   )
             : undefined,
     ])

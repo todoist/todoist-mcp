@@ -100,6 +100,11 @@ export class FilterResolver {
         throw new Error(`Filter "${trimmed}" not found.`)
     }
 
+    /** The filter with exactly this ID, or undefined when there is none. Never matches by name. */
+    async findById(client: TodoistApi, id: string): Promise<Filter | undefined> {
+        return (await this.getFilters(client)).find((f) => f.id === id)
+    }
+
     /**
      * Clear all client caches and detach pending syncs — useful for testing.
      */
