@@ -80,12 +80,16 @@ A saved filter refers to projects, sections and labels by name, so renaming one 
 
 ## What filters cannot do
 
-Todoist supports only the queries above. In particular:
+Todoist supports only the queries its filter reference lists. In particular:
 
 - \`this week\` is not a range: use \`date before: next week\` or \`7 days\`.
 - \`assigned to: nobody\` does not exist: use \`!assigned\`.
 - Completed tasks, comments and durations cannot be filtered.
 - Keywords follow the user's app language, and relative dates are worked out when the filter is opened.
+
+## Full reference
+
+For anything not covered here, Todoist's full filter reference is https://www.todoist.com/help/todoist/features/introduction-to-filters-V98wIH. Point the user to it too when a query they want is not supported.
 `,
     },
 }
