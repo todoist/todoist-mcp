@@ -23,7 +23,7 @@ describe(`${RESCHEDULE_TASKS} tool`, () => {
     })
 
     describe('rescheduling non-recurring tasks', () => {
-        it('should reschedule a date-only task to a new date', async () => {
+        it('sends the new date without the old due string', async () => {
             const task = createMockTask({
                 id: 'task-1',
                 due: {
@@ -47,7 +47,6 @@ describe(`${RESCHEDULE_TASKS} tool`, () => {
                             id: 'task-1',
                             due: {
                                 date: '2026-03-20',
-                                string: 'Mar 15',
                                 isRecurring: false,
                             },
                         },
@@ -116,7 +115,6 @@ describe(`${RESCHEDULE_TASKS} tool`, () => {
                             id: 'task-1',
                             due: {
                                 date: '2026-12-11T15:00:00',
-                                string: 'Dec 10 2026 at 3pm',
                                 isRecurring: false,
                             },
                         },

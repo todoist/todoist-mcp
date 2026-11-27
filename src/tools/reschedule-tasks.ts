@@ -159,7 +159,7 @@ function buildRescheduleFields(
         return {
             due: {
                 date: buildRescheduleDate(inputDate, task.due),
-                string: task.due.string,
+                ...(task.due.isRecurring && { string: task.due.string }),
                 isRecurring: task.due.isRecurring,
                 timezone: task.due.timezone ?? undefined,
                 lang: task.due.lang ?? undefined,
