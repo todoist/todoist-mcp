@@ -140,10 +140,24 @@ jobs:
                   audience: thread
               continue-on-error: true
 
-            - name: Trigger todoist-ai-integrations update
+            # Same setup as comms-mcp and automations. The org refuses fine-grained
+            # personal access tokens that live longer than 90 days.
+            - name: Generate todoist-ai-integrations token
+              id: integrations_token
               if: ${{ steps.announcement.outputs.should_announce == 'true' }}
+              uses: actions/create-github-app-token@v3
+              with:
+                  app-id: ${{ secrets.DOIST_RELEASE_BOT_ID }}
+                  private-key: ${{ secrets.DOIST_RELEASE_BOT_PRIVATE_KEY }}
+                  owner: todoist
+                  repositories: todoist-ai-integrations
+                  permission-contents: write
+              continue-on-error: true
+
+            - name: Trigger todoist-ai-integrations update
+              if: ${{ steps.announcement.outputs.should_announce == 'true' && steps.integrations_token.outcome == 'success' }}
               env:
-                  GH_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+                  GH_TOKEN: ${{ steps.integrations_token.outputs.token }}
                   VERSION: ${{ steps.announcement.outputs.package_version }}
               run: |
                   # `client_payload` must be sent as nested fields so gh builds a
