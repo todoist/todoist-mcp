@@ -1,8 +1,10 @@
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { readPassedPatches } from './patches.ts'
+import { checkCommand } from './push-check.ts'
 import { readVerified, stateDir, writeVerified } from './state.ts'
-import { createTempRepo, type TempRepo } from './test-repo.ts'
+import { createTempRepo, GIT_HAS_VERBATIM_PATCH_ID, type TempRepo } from './test-repo.ts'
 import { codeFingerprint, snapshot } from './tree.ts'
 import { runVerify, type Step } from './verify.ts'
 
@@ -56,6 +58,74 @@ describe('a code change', () => {
         expect(readVerified(repo.dir)?.fingerprint).toBe(codeFingerprint(snapshot(repo.dir)))
         expect(lines.some((line) => /^✓ lint \(\d+\.\ds\)$/.test(line))).toBe(true)
     })
+
+    // Without `git patch-id --verbatim` (git before 2.39) there is no exemption to record.
+    it.skipIf(!GIT_HAS_VERBATIM_PATCH_ID)(
+        'records the changes as passed when the tree is exactly the last commit',
+        async () => {
+            await verify([pass('lint')])
+            expect(readPassedPatches(repo.dir)).toEqual([])
+
+            repo.git(['commit', '--quiet', '-am', 'change a'])
+            await verify([pass('lint')])
+            expect(readPassedPatches(repo.dir)).toEqual([
+                { patchId: expect.any(String), base, at: expect.any(String) },
+            ])
+        },
+    )
+
+    // Without `git patch-id --verbatim` (git before 2.39) there is no exemption to forget.
+    it.skipIf(!GIT_HAS_VERBATIM_PATCH_ID)(
+        'stops counting the changes as passed once a verify run on them fails',
+        async () => {
+            repo.git(['commit', '--quiet', '-am', 'change a'])
+            await verify([pass('lint')])
+            // main moves on, and the branch is rebased onto it
+            repo.git(['switch', '--quiet', 'main'])
+            repo.write('src/upstream.ts', 'export const u = 1\n')
+            repo.git(['add', '.'])
+            repo.git(['commit', '--quiet', '-m', 'upstream'])
+            repo.git(['switch', '--quiet', 'feature'])
+            repo.git(['rebase', '--quiet', 'main'])
+            const push = () =>
+                checkCommand({ root: repo.dir, command: 'git push origin feature', cwd: repo.dir })
+            expect(push().decision).toBe('allow')
+
+            const moved = repo.git(['merge-base', 'HEAD', 'main']).stdout.trim()
+            await verify([fail('tests')], { base: moved })
+            expect(readPassedPatches(repo.dir)).toEqual([])
+            expect(push().decision).toBe('deny')
+        },
+    )
+
+    // Without `git patch-id --verbatim` (git before 2.39) there is no exemption to forget.
+    it.skipIf(!GIT_HAS_VERBATIM_PATCH_ID)(
+        'forgets the changes when the failing run sees them staged or uncommitted again',
+        async () => {
+            repo.write('src/new.ts', 'export const n = 1\n')
+            const commitAndPass = async () => {
+                repo.git(['add', '.'])
+                repo.git(['commit', '--quiet', '-m', 'change a, add new'])
+                await verify([pass('lint')])
+                expect(readPassedPatches(repo.dir)).toHaveLength(1)
+            }
+            // `--soft` leaves the changes staged; the default `--mixed` leaves src/new.ts untracked.
+            for (const mode of ['--soft', '--mixed']) {
+                await commitAndPass()
+                repo.git(['reset', '--quiet', mode, 'HEAD~1'])
+                await verify([fail('tests')])
+                expect(readPassedPatches(repo.dir), mode).toEqual([])
+            }
+            repo.git(['add', '.'])
+            repo.git(['commit', '--quiet', '-m', 'change a, add new'])
+            const push = checkCommand({
+                root: repo.dir,
+                command: 'git push origin feature',
+                cwd: repo.dir,
+            })
+            expect(push.decision).toBe('deny')
+        },
+    )
 
     it('records nothing when a step fails, and forgets an earlier pass', async () => {
         writeVerified(repo.dir, { fingerprint: 'earlier', head: 'x', at: 'then' })

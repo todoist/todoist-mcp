@@ -2,15 +2,21 @@
 // Records a fingerprint of the tree only when everything passed; the push check reads it.
 
 import { CHECKOUT_ROOT, branchBase, defaultBranchRef } from './lib/git.ts'
+import { forgetPassedChanges } from './lib/patches.ts'
 import { clearVerified } from './lib/state.ts'
 import { BLIND_SPOTS, LOOSENING_ENV, preflight, VERIFY_STEPS } from './lib/steps.ts'
 import { runVerify } from './lib/verify.ts'
 
 const root = CHECKOUT_ROOT
+const ref = defaultBranchRef(root)
+const base = ref ? branchBase(root, ref) : undefined
 
 const problems = preflight(root)
 if (problems.length > 0) {
+    // A run that stops here is a run that didn't pass: forget the tree and the branch's changes, as
+    // a failing check would.
     clearVerified(root)
+    if (base !== undefined) forgetPassedChanges(root, base)
     for (const problem of problems) console.log(`✗ ${problem}`)
     process.exit(1)
 }
@@ -21,11 +27,10 @@ for (const name of LOOSENING_ENV) {
     delete process.env[name]
 }
 
-const ref = defaultBranchRef(root)
 const result = await runVerify({
     root,
     steps: VERIFY_STEPS,
-    base: ref ? branchBase(root, ref) : undefined,
+    base,
     baseName: ref?.replace(/^refs\/(remotes|heads)\//, '') ?? 'main',
 })
 

@@ -64,6 +64,11 @@ export function snapshotCommit(root: string, commit: string): Snapshot {
     return files
 }
 
+/** The fingerprint of a commit, comparable with the one verify records for the working tree. */
+export function commitFingerprint(root: string, commit: string): string {
+    return codeFingerprint(snapshotCommit(root, commit))
+}
+
 /** The kind of file, as far as local checks are concerned. */
 export type FileKind = 'docs' | 'unchecked' | 'code'
 

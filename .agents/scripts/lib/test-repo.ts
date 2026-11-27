@@ -131,6 +131,10 @@ export function installLefthook(repo: TempRepo): void {
     if (result.status !== 0) throw new Error(`lefthook install failed: ${result.stderr}`)
 }
 
+/** Whether this git has `git patch-id --verbatim` (2.39 and later), which the rebase exemption needs. */
+export const GIT_HAS_VERBATIM_PATCH_ID =
+    spawnSync('git', ['patch-id', '--verbatim'], { input: '', env: isolatedEnv() }).status === 0
+
 /** Records that `npm run verify` passed on the working tree as it is now, as a pass would. */
 export function markVerified(dir: string): void {
     writeVerified(dir, { fingerprint: codeFingerprint(snapshot(dir)), head: 'x', at: 'now' })

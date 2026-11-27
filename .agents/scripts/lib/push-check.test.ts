@@ -1,8 +1,14 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { recordPassedPatch } from './patches.ts'
 import { checkCommand, type PushVerdict } from './push-check.ts'
-import { createTempRepo, markVerified as markDirVerified, type TempRepo } from './test-repo.ts'
+import {
+    createTempRepo,
+    GIT_HAS_VERBATIM_PATCH_ID,
+    markVerified as markDirVerified,
+    type TempRepo,
+} from './test-repo.ts'
 
 let repo: TempRepo
 
@@ -416,6 +422,80 @@ describe('pushes it stops before reading them', () => {
         expect(denial('sudo --chdir src git push origin feature')).toContain('npm run verify')
         markVerified()
         expect(check('eval "git push origin feature"').decision).toBe('allow')
+    })
+})
+
+// Without `git patch-id --verbatim` (git before 2.39) there is no exemption, and every rebase needs
+// verify again.
+describe.skipIf(!GIT_HAS_VERBATIM_PATCH_ID)('pushes of changes that already passed', () => {
+    /** Moves main on with a change to another file, as a merged pull request would. */
+    function moveMain(path = 'src/upstream.ts'): void {
+        const branch = repo.git(['branch', '--show-current']).stdout.trim()
+        repo.git(['switch', '--quiet', 'main'])
+        repo.write(path, `export const upstream = '${path}'\n`)
+        repo.git(['add', path])
+        repo.git(['commit', '--quiet', '-m', 'main moves on'])
+        repo.git(['push', '--quiet', 'origin', 'main'])
+        repo.git(['fetch', '--quiet', 'origin'])
+        repo.git(['switch', '--quiet', branch])
+    }
+
+    it('lets a verified branch push again after a rebase that only moved main under it', () => {
+        commitOnBranch('feature', 'src/b.ts')
+        markVerified()
+        expect(check('git push -u origin feature')).toEqual({ decision: 'allow', notes: [] })
+
+        moveMain()
+        repo.git(['rebase', '--quiet', 'origin/main'])
+        expect(check('git push --force-with-lease origin feature')).toEqual({
+            decision: 'allow',
+            notes: ["feature holds changes that already passed verify, so it isn't verified again"],
+        })
+    })
+
+    it('counts a pass recorded by verify on a clean tree, before any push', () => {
+        commitOnBranch('feature', 'src/b.ts')
+        recordPassedPatch(repo.dir, repo.git(['merge-base', 'HEAD', 'main']).stdout.trim(), 'HEAD')
+        moveMain()
+        repo.git(['rebase', '--quiet', 'origin/main'])
+        expect(check('git push').decision).toBe('allow')
+    })
+
+    it('stops a rebased branch whose changes are not the ones that passed', () => {
+        commitOnBranch('feature', 'src/b.ts')
+        markVerified()
+        check('git push -u origin feature')
+        moveMain()
+        repo.git(['rebase', '--quiet', 'origin/main'])
+        repo.write('src/b.ts', 'export const x = 2\n')
+        repo.git(['commit', '--quiet', '-am', 'change it after the rebase'])
+        expect(denial('git push --force-with-lease')).toContain('npm run verify')
+    })
+
+    it('stops a rebased branch when nothing recorded its changes as passed', () => {
+        commitOnBranch('feature', 'src/b.ts')
+        moveMain()
+        repo.git(['rebase', '--quiet', 'origin/main'])
+        expect(denial('git push')).toContain('npm run verify')
+    })
+
+    it('lets each branch of a stack push again after verify moved on to the next', () => {
+        commitOnBranch('lower', 'src/lower.ts')
+        markVerified()
+        check('git push -u origin lower')
+        commitOnBranch('upper', 'src/upper.ts')
+        markVerified()
+        check('git push -u origin upper')
+        // The record now holds upper's tree, and lower isn't checked out
+        expect(check('git push origin lower upper').decision).toBe('allow')
+    })
+
+    it('checks the working tree, not the passed changes, when the same command commits first', () => {
+        commitOnBranch('feature', 'src/b.ts')
+        markVerified()
+        expect(check('git push -u origin feature').decision).toBe('allow')
+        repo.write('src/b.ts', 'export const x = 2\n')
+        expect(denial('git commit -am "change it" && git push')).toContain('npm run verify')
     })
 })
 

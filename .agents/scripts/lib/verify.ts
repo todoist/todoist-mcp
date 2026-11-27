@@ -1,13 +1,15 @@
 import { spawn } from 'node:child_process'
 import { createWriteStream, mkdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { cleanGitEnv, git } from './git.ts'
+import { cleanGitEnv, resolveCommit } from './git.ts'
+import { forgetPassedChanges, recordPassedPatch } from './patches.ts'
 import { clearVerified, stateDir, writeVerified } from './state.ts'
 import {
     changedCodePaths,
     changedSince,
     classify,
     codeFingerprint,
+    commitFingerprint,
     needsChecks,
     snapshot,
 } from './tree.ts'
@@ -58,9 +60,11 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyResult> {
     }
 
     // From here the checks run, so a run that does not end in a pass must not leave an earlier
-    // pass behind. (A docs-only run returns above: docs are outside the fingerprint, so an
-    // earlier pass is still valid.)
+    // pass behind, of the tree or of the branch's changes. (A docs-only run returns above: docs
+    // are outside the fingerprint, so an earlier pass is still valid.)
     clearVerified(root)
+    const commit = resolveCommit(root, 'HEAD')
+    if (base !== undefined) forgetPassedChanges(root, base)
     const before = snapshot(root)
 
     const logDir = join(stateDir(root), 'logs')
@@ -75,13 +79,16 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyResult> {
         return { ok: false, recorded: false }
     }
 
-    const head = git(root, ['rev-parse', 'HEAD'])
     const fingerprint = codeFingerprint(after)
-    writeVerified(root, {
-        fingerprint,
-        head: head.ok ? head.stdout.trim() : 'none',
-        at: new Date().toISOString(),
-    })
+    writeVerified(root, { fingerprint, head: commit ?? 'none', at: new Date().toISOString() })
+    // When the tree is exactly the last commit, its changes can push again after a rebase.
+    if (
+        commit !== undefined &&
+        base !== undefined &&
+        commitFingerprint(root, commit) === fingerprint
+    ) {
+        recordPassedPatch(root, base, commit)
+    }
     out(`Verified. Recorded fingerprint ${fingerprint.slice(0, 12)}.`)
     return { ok: true, recorded: true }
 }

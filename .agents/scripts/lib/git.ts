@@ -18,15 +18,22 @@ function localGitVars(): string[] {
 export function cleanGitEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
     const clean = { ...env }
     for (const name of localGitVars()) delete clean[name]
+    // GIT_DIFF_OPTS sets the context of every diff, over `--unified` on the command line; the
+    // tooling's diffs set their own.
+    delete clean.GIT_DIFF_OPTS
     return clean
 }
 
 export type GitResult = { ok: boolean; stdout: string; stderr: string }
 
-export function git(root: string, args: string[], options: { input?: string } = {}): GitResult {
+export function git(
+    root: string,
+    args: string[],
+    options: { input?: string; env?: Record<string, string> } = {},
+): GitResult {
     const result = spawnSync('git', args, {
         cwd: root,
-        env: cleanGitEnv(),
+        env: { ...cleanGitEnv(), ...options.env },
         input: options.input,
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,
