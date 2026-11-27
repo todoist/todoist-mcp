@@ -104,10 +104,20 @@ function runGuard(payload: Record<string, unknown>): Promise<GuardOutput> {
     })
 }
 
-/** Shows a note in Pi's UI, or on stderr in print and JSON modes, which have none. */
+/**
+ * Shows a note in Pi's UI, or on stderr in print and JSON modes, which have none. A note the UI
+ * can't show goes to stderr too: it costs only the note, never the decision.
+ */
 function tell(ctx: ToolContext, message: string): void {
-    if (ctx.hasUI) ctx.ui.notify(message, 'warning')
-    else process.stderr.write(`${message}\n`)
+    try {
+        if (ctx.hasUI) {
+            ctx.ui.notify(message, 'warning')
+            return
+        }
+    } catch {
+        // Falls back to stderr below.
+    }
+    process.stderr.write(`${message}\n`)
 }
 
 async function checkToolCall(
@@ -126,14 +136,7 @@ async function checkToolCall(
         decision?.permissionDecision === 'deny'
             ? { block: true, reason: decision.permissionDecisionReason }
             : undefined
-    // A note that can't be shown costs only the note, never the decision.
-    if (output.systemMessage) {
-        try {
-            tell(ctx, output.systemMessage)
-        } catch {
-            process.stderr.write(`${output.systemMessage}\n`)
-        }
-    }
+    if (output.systemMessage) tell(ctx, output.systemMessage)
     return result
 }
 
@@ -145,11 +148,7 @@ export default function agentGuard(pi: ExtensionAPI): void {
             return await checkToolCall(event, ctx)
         } catch (error) {
             const message = `agent-guard: the Pi extension failed, so it allowed the action. ${(error as Error)?.message ?? error}`
-            try {
-                tell(ctx, message)
-            } catch {
-                process.stderr.write(`${message}\n`)
-            }
+            tell(ctx, message)
             return undefined
         }
     })

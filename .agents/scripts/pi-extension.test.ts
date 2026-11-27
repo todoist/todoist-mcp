@@ -222,6 +222,14 @@ it('says so when the guard itself fails to run', () => {
     )
 })
 
+it("allows the call when node can't start the guard at all", () => {
+    commitOnBranch('feature', 'src/b.ts')
+    // The driver runs node by its full path, so only the extension's own spawn of the guard fails.
+    const failed = drive(bash('git push'), { env: { PATH: join(repo.dir, '.tmp/no-such-folder') } })
+    expect(failed.result).toBeNull()
+    expect(failed.notes.join('\n')).toContain('tool-start failed to run')
+})
+
 it('allows the call when the guard exits without reading its input or printing JSON', () => {
     commitOnBranch('feature', 'src/b.ts')
     // A command long enough that the write is still going when the guard closes the pipe
