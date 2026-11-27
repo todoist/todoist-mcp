@@ -309,10 +309,9 @@ describeToolAnnotations({
         },
         [ToolNames.EXPORT_PROJECT]: {
             title: 'Todoist: Export Project',
-            readOnlyHint: false,
+            readOnlyHint: true,
             destructiveHint: false,
             idempotentHint: true,
-            openWorldHint: true,
         },
         [ToolNames.IMPORT_INTO_PROJECT]: {
             title: 'Todoist: Import Into Project',
