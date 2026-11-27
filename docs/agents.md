@@ -9,7 +9,7 @@ This repository is set up so coding agents prove their work before they call it 
 3. **`AGENTS.md`** tells agents what done means. Claude Code reads it through `CLAUDE.md`; Codex and Cursor read it directly.
 4. **Skills** in `.agents/skills/` give step-by-step procedures for recurring work. They load only when a task needs them.
 5. **Review**: fresh reviewers and Doistbot check a finished change against the checks in `.agents/checks/`.
-6. **The end-of-turn gate** sends an agent back once when its turn changed code that `npm run verify` has not passed.
+6. **The push check** stops an agent's `git push` or `gh pr create` until `npm run verify` has passed on exactly what it pushes.
 
 ## Rules and what holds them
 
@@ -22,7 +22,8 @@ This repository is set up so coding agents prove their work before they call it 
 | Tests pass before a push                                                                                | `pre-push`; CI                                                       | Enforced in CI                           |
 | Agent tooling and developer scripts never ship in the npm package                                       | `.agents/scripts/package-contents.test.ts`                           | Enforced in CI                           |
 | `npm run verify` runs what CI runs                                                                      | `.agents/scripts/lib/steps.test.ts` compares it with `ci.yml`        | Enforced in CI                           |
-| Run `npm run verify` before calling work done                                                           | `AGENTS.md`                                                          | Enforced at turn end (once); `AGENTS.md` |
+| Run `npm run verify` before calling work done                                                           | `AGENTS.md`                                                          | Asked                                    |
+| An agent pushes only code `npm run verify` passed                                                       | The push check, `.agents/scripts/guard.ts`                           | Enforced on an agent's push              |
 | Never weaken a check to pass it                                                                         | `AGENTS.md`                                                          | Asked                                    |
 | Instructions name only files, links and scripts that exist                                              | `.agents/scripts/instructions.test.ts`                               | Enforced in CI                           |
 | Every skill says when to use it and is linked for Claude Code                                           | `.agents/scripts/instructions.test.ts`                               | Enforced in CI                           |
@@ -51,40 +52,43 @@ The release workflow commits and pushes to `main` from GitHub Actions, and `npm 
 One command, every check a pull request's CI runs: lint, format, both type checks, all tests, the build, schema validation and the executable smoke test. It takes about ten seconds, so it always checks the whole tree. Picking only the affected tests would save two seconds and add a way to miss something.
 
 - **Before the checks** it stops if Node is older than `package.json` requires, or if `node_modules` does not match the lockfile. Both make checks fail for reasons unrelated to your change.
-- **Only docs changed** since the branch left `main`: it says there is nothing to check. The agent instructions (`AGENTS.md`, `CODEBASE.md`, `docs/agents.md`, `.agents/`) count as code, since a test checks every reference in them.
-- **Only CI files changed** (`.github/` workflows other than `ci.yml`, Renovate): it says no local check reads them. `ci.yml` counts as code, since a local test compares verify with it.
+- **Only docs changed** since the branch left `main`: it says there is nothing to check. Docs here means only what no local check reads, `CHANGELOG.md` and `LICENSE`: the format check (oxfmt) reads every other Markdown file, and the JSON and YAML under `.github/`, so a README edit needs verify like code. Adding or deleting a doc counts as code too, since the agent instructions may name it. `.agents/scripts/lib/tree.test.ts` checks that oxfmt leaves alone every file verify leaves out.
+- **Only CI files changed** (`.nvmrc`, which picks the release workflow's Node version): it says no local check reads them.
 - **`MCP_TOKEN_BUDGET`** raises the token budget test's limit. CI never sets it, so verify ignores it and says so.
 - **Output:** one line per step. A failing step prints the last 30 lines of its log and the log's path under `.tmp/agents/logs/`.
-- **The record:** after a full pass it writes a content hash of every file local checks read (not docs, not CI-only files) to `.tmp/agents/verified.json`. A run that fails, or sees files change while it runs, deletes it. The end-of-turn gate reads it.
+- **The record:** after a full pass it writes a content hash of every file local checks read (not docs, not CI-only files) to `.tmp/agents/verified.json`. A run that fails, or sees files change while it runs, deletes it. The push check reads it.
 - **What it cannot see:** the MCP Apps widgets in a real client, the real Todoist API, and how models use tool descriptions. It prints these after every pass.
 
 If CI gains a step, `.agents/scripts/lib/steps.test.ts` fails until verify gains it too.
 
-## The end-of-turn gate
+## The push check
 
-Every agent's hooks call one script, `.agents/scripts/guard.ts`, so the agents can't drift apart.
+Every agent's hooks call one script, `.agents/scripts/guard.ts`, so the agents can't drift apart. Before each shell command an agent runs, it stops one that pushes code `npm run verify` hasn't passed, or opens a pull request for it. That's where a person starts reviewing, so that's where the proof has to exist. It costs nothing until a command pushes: the hook command only starts Node when the shell command itself mentions a push or a new pull request, and the guard only runs git when it reads one.
 
-- **Turn start** (you send a message): it hashes every file in the checkout, untracked ones included, into `.tmp/agents/turns/`.
-- **Turn end** (the agent stops): it compares the tree with the turn's start and with the last `npm run verify` pass. If the turn changed code and verify has not passed on exactly this tree, it sends the agent back once, naming the files. The second time, it lets the agent stop and shows you a note.
-- **Passes without a word:** turns that changed nothing, changed only docs, or undid their edits.
-- **"Once"** is deliberate: an agent can stop on purpose and say what is unfinished.
+- **What it checks:** what's pushed has to be exactly a tree verify passed, docs aside. A push sends commits, not the working tree, so verifying with uncommitted changes and then pushing only some of them doesn't get through. When the working tree holds more than the last commit, it says to commit or stash the rest before verifying.
+- **A commit and a push in one command:** for `git add -A && git commit -m "…" && git push`, it checks the working tree that's about to be committed. That holds only when the commit takes all of it: everything staged first in the same command (`git add -A`, or `git add .` from the top folder), `git commit -a` with no untracked files, or a plain commit with nothing unstaged either. A commit that can leave part of the tree out, by naming paths, `--patch` or what it doesn't stage, is stopped: commit first, then push. The working tree stands in only for what the commit moves, `HEAD` and the branch checked out when it commits (and a branch the command makes after it); a tag or another branch at the same commit is checked against what it holds, since the commit leaves it where it was.
+- **What needs no verify:** a branch whose changes since `main` are all ones verify records nothing for (edits to `CHANGELOG.md`, `LICENSE` or `.nvmrc`), or whose code is back to what `main` has; a dry run; and a push that only deletes. A README or other Markdown change does need verify, since the format check reads it. A tag named in the command, such as `git push origin v1.0`, is checked like a branch, and `git push --tags` checks every tag that `main` doesn't already contain, so release tags push freely and a tag on unverified code doesn't. A branch with no history in common with `main` always needs verify, since verify checks the whole tree there and records a pass.
+- **What it reads:** `git push`, with `-C` or after a `cd`, `pushd` or `popd`, and `gh pr create` (or `gh pr new`, with `-R` and `--head` or `-H`), anywhere in a command, after `env`, `command`, `builtin`, `exec`, `nohup`, `time`, `timeout` or `sudo` (with `env -C` or `sudo --chdir` changing the folder), and inside `eval`, `sh -c` (or another shell's `-c`) and `env -S`, but not inside quotes or a here-document, such as a commit message. It stops a push it can't tell the contents of: every branch at once (`--all`, `--mirror`, `:` or a wildcard), one with no refspec when git's settings for the remote it goes to pick what it sends (`remote.<name>.push` or `.mirror`, or `push.default=matching`, set in the config or with `git -c`; a refspec in the command wins over them, as in git), one run through `xargs`, a branch named by a shell variable or one that doesn't exist, and a push after a command in the same line that changes what's checked out or moves a branch (`git switch`, `git checkout`, `git reset <commit>`, `git rebase`, `git pull`, `git merge`, `git branch -f`, `-m` or `-c`, `git update-ref`, `gh pr checkout` and the like). A branch the same line makes from what's checked out (`git switch -c`, `git checkout -b`, `git branch <name>`) counts as what's checked out, and so does one it forces over an existing branch (`git switch -C`, `git checkout -B`), whatever that held before.
+- **Which pushes:** pushes from the checkout `guard.ts` lives in, and from any other worktree of this repository that has the guard, however the command gets there (the agent works in it, `cd`, or `git -C`), each checked against that worktree's own verify record. A worktree on a branch without the guard is left alone, as is a push from another repository, and a push you run in your own terminal never passes through it.
 
-| Agent       | Wiring                                                                                                                | Known limits                                                                                                                                                                            |
-| ----------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude Code | `.claude/settings.json`: `UserPromptSubmit` and `Stop`                                                                | Tested in a real session: it sent the agent back once and let it stop the second time.                                                                                                  |
-| Codex       | `.codex/hooks.json`: `UserPromptSubmit` and `Stop`                                                                    | Runs only in a trusted project, after each person reviews the hooks in `/hooks`. Versions 0.154 and 0.162.1 ran no project hooks in a linked worktree. Not yet tried in a real session. |
-| Cursor      | Runs the Claude Code hooks itself; the command falls back to the git root if Cursor does not set `CLAUDE_PROJECT_DIR` | No Cursor hooks file: a second one would run every hook twice. A test keeps it out. Not yet tried in a real session.                                                                    |
+When it stops a command, the reason tells the agent to run verify and try again. When you want something pushed that can't pass yet, push it yourself.
 
-**Other limits:**
+| Agent       | Wiring                                                                                                                | Known limits                                                                                                                                                                                                                                                                                                                                                               |
+| ----------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code | `.claude/settings.json`: `PreToolUse` on `Bash`                                                                       | `hook-wiring.test.ts` runs the exact command. Accept the workspace trust prompt.                                                                                                                                                                                                                                                                                           |
+| Codex       | `.codex/hooks.json`: `PreToolUse` on `Bash`                                                                           | Runs only in a trusted project (`codex --trust`), after each person reviews the hook in `/hooks`; a change to `hooks.json` needs a new review. In a linked worktree, Codex (0.171) trusts and runs the hooks of the main checkout, not the worktree's. The hook command finds the worktree from its folder, so a worktree is guarded once the main checkout has this hook. |
+| Cursor      | Runs the Claude Code hooks itself; the command falls back to the git root if Cursor does not set `CLAUDE_PROJECT_DIR` | No Cursor hooks file: a second one would run every hook twice. A test keeps it out. Not yet tried here.                                                                                                                                                                                                                                                                    |
 
-- Two sessions in one checkout share its files, so each may be told about the other's edits. Use a worktree per session.
-- If the branch's code is back to what `main` has (an undo, a stash, a switch), the turn passes: CI already checked that code.
+**Limits.** The push check catches an agent's honest mistakes. It isn't a security boundary, and CI is still what gates a merge.
+
+- **Pushes it can't see:** a push from a script, a git alias, a `gh` extension such as `gh stack`, GitHub's API or a GitHub MCP tool goes through unchecked, as does a command `eval` or a shell builds from variables. CI still checks them.
+- **One record per checkout:** verify records the last tree it passed. To push a stack, verify and push each branch in turn; a push of several branches at once, or of a branch that isn't checked out, is stopped unless its changes need no verify.
+- **A commit and a push in one command:** the check sees the working tree as it is before the command runs. A step before the commit that changes the tree or what's staged, such as `git stash pop` or `git restore --staged`, can let code through that verify didn't see.
+- **Two sessions in one checkout** share its record. Use a worktree per session.
 - Worktrees share the hooks in `.git/hooks`, so the branch rule works in a new worktree at once. Lint, format, types and tests need `npm ci` in that worktree first.
 - Without the lefthook binary (no `node_modules` in the main checkout), the hooks print "Can't find lefthook in PATH" and let the commit through.
 
-**Fails open, visibly:** a broken guard, bad input or a checkout without the script lets the turn end and says why in a message. `DISABLE_AGENT_GUARD=1` in the agent's environment turns the gate off for you.
-
-**Speed:** turn start takes under 0.1 seconds on this repository.
+**Fails open, visibly:** a broken guard, bad input, or a push from a folder it can't name lets the command run and says why in a message. A checkout without the script, such as an older branch, is skipped without a word, since the hook runs before every shell command. If node isn't on `PATH`, the hook command fails and the agent carries on. `DISABLE_AGENT_GUARD=1` in the agent's environment turns the check off; in Claude Code, a gitignored settings.local.json in `.claude/` can set it for one checkout with `{ "env": { "DISABLE_AGENT_GUARD": "1" } }`.
 
 ## Skills
 
@@ -153,4 +157,4 @@ semantic-release publishes from `main` on every merge. The squash-merged PR titl
 
 - No node on `PATH` in a GUI client: the hooks skip lint, the type check and the tests, with a message. The branch rule still applies.
 - `git commit --no-verify`: every local hook is skipped. CI and branch protection still apply.
-- The end-of-turn gate: any error lets the turn end, with a message saying why. `DISABLE_AGENT_GUARD=1` turns it off.
+- The push check: any error lets the command run, with a message saying why. `DISABLE_AGENT_GUARD=1` turns it off.

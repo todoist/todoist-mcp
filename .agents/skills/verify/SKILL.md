@@ -13,6 +13,8 @@ npm run verify
 
 It runs every check CI runs (about ten seconds) and records the pass. Fix every failure; never weaken a check to pass it. Done when it prints `Verified.`, or says only docs changed and there is nothing to check.
 
+Your `git push` and `gh pr create` are stopped until verify has passed on exactly the commit being pushed, so commit what verify saw and nothing more, or commit first and verify the clean tree.
+
 ## 2. Prove the change itself
 
 The checks prove nothing broke. Now prove the change does what was asked, with the proof its kind needs:

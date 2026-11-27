@@ -28,7 +28,7 @@ TypeScript · ESM-only · Node >=24 · npm >=11 · `zod` v4 for schemas · MCP S
 ├─ dist/                  # Build output (Vite). Never edit.
 ├─ AGENTS.md              # Prescriptive rules for people and agents: definition of done, schema design, new-tool checklist
 ├─ CLAUDE.md              # Imports AGENTS.md for Claude Code; nothing else
-├─ .agents/scripts/          # Agent tooling (verify, git hook guard) and its tests. Not published, like scripts/
+├─ .agents/scripts/          # Agent tooling (verify, git hook guard, push check) and its tests. Not published, like scripts/
 ├─ docs/agents.md         # How the agent tooling fits together, for the owner
 ├─ CODEBASE.md            # This file — descriptive map
 ├─ package.json           # See Scripts section
@@ -184,7 +184,7 @@ New tool? Full checklist in `AGENTS.md`. Short version: copy `add-tasks.ts`; add
 
 - **Build:** Vite. `npm run build` = `build:lib` (lib bundle → `dist/`) + `build:apps` (React widgets → `dist/mcp-apps/`).
 - **Dev:** `npm run dev` (stdio + inspector, auto-rebuild) or `npm run dev:http`.
-- **Verify:** `npm run verify` — every check CI runs, with one shared build, in about ten seconds (`.agents/scripts/verify.ts`). Records a pass in `.tmp/agents/` for the agent hooks.
+- **Verify:** `npm run verify` — every check CI runs, with one shared build, in about ten seconds (`.agents/scripts/verify.ts`). Records a pass in `.tmp/agents/`, which the push check reads.
 - **Type-check:** `npm run type-check` (`tsc --noEmit` for `src/`, then `.agents/scripts/tsconfig.json` for the agent tooling).
 - **Format/lint:** `npm run format:check` / `npm run format:fix` — uses **oxlint + oxfmt**, not eslint/prettier.
 - **Behaviour eval:** `npm run eval` — sends the real tool surface to a model and checks which tool it picks (`scripts/eval-instructions.ts`). Not part of `npm test`: it calls paid models and reports a pass rate rather than pass/fail. Run it either side of a change to tool descriptions or `instructions`; see AGENTS.md.

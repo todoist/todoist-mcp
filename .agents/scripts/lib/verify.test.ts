@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { readVerified, stateDir, writeVerified } from './state.ts'
@@ -36,7 +36,8 @@ beforeEach(() => {
     repo = createTempRepo()
     repo.write('.gitignore', '.tmp/\n')
     repo.write('src/a.ts', 'export const a = 1\n')
-    repo.write('README.md', 'readme\n')
+    repo.write('CHANGELOG.md', '# Changelog\n')
+    repo.write('.nvmrc', '24\n')
     repo.git(['add', '.'])
     repo.git(['commit', '--quiet', '-m', 'initial'])
     base = repo.git(['rev-parse', 'HEAD']).stdout.trim()
@@ -102,7 +103,7 @@ describe('a code change', () => {
         const earlier = readVerified(repo.dir)
         repo.git(['add', '.'])
         repo.git(['commit', '--quiet', '-m', 'code'])
-        repo.write('.github/workflows/release.yml', 'on: push\n')
+        repo.write('.nvmrc', '26\n')
         lines = []
         await runVerify({
             root: repo.dir,
@@ -116,7 +117,7 @@ describe('a code change', () => {
 
     it('keeps the pass when only a file CI alone reads changes during the run', async () => {
         const editor = pass('tests', {
-            args: ['-c', 'mkdir -p .github/workflows && echo x > .github/workflows/release.yml'],
+            args: ['-c', 'echo 26 > .nvmrc'],
         })
         const result = await verify([pass('lint'), editor])
         expect(result).toEqual({ ok: true, recorded: true })
@@ -146,7 +147,7 @@ describe('what counts as a change', () => {
 
     it('keeps an earlier pass when only docs changed', async () => {
         writeVerified(repo.dir, { fingerprint: 'earlier', head: 'x', at: 'then' })
-        repo.write('README.md', 'changed\n')
+        repo.write('CHANGELOG.md', '# Changelog\n\n## 1.0.0\n')
         await verify([pass('lint')])
         expect(readVerified(repo.dir)?.fingerprint).toBe('earlier')
     })
@@ -156,19 +157,32 @@ describe('what counts as a change', () => {
         expect(await verify([pass('lint')])).toEqual({ ok: true, recorded: true })
     })
 
+    it.each(['README.md', 'docs/guide.md', '.github/workflows/release.yml'])(
+        'runs the checks when %s changes, since the format check reads it',
+        async (path) => {
+            repo.write(path, 'changed\n')
+            expect(await verify([pass('lint')])).toEqual({ ok: true, recorded: true })
+        },
+    )
+
+    it('runs the checks when a doc is deleted, since the agent docs may name it', async () => {
+        rmSync(join(repo.dir, 'CHANGELOG.md'))
+        expect(await verify([pass('lint')])).toEqual({ ok: true, recorded: true })
+    })
+
     it('has nothing to check for a docs-only change', async () => {
-        repo.write('README.md', 'changed\n')
+        repo.write('CHANGELOG.md', '# Changelog\n\n## 1.0.0\n')
         const result = await verify([fail('lint')])
         expect(result).toEqual({ ok: true, recorded: false })
         expect(lines).toEqual(['Only docs changed since main: nothing to check. Nothing recorded.'])
     })
 
     it('records nothing when only files CI alone reads changed', async () => {
-        repo.write('.github/workflows/release.yml', 'on: push\n')
-        repo.write('README.md', 'changed\n')
+        repo.write('.nvmrc', '26\n')
+        repo.write('CHANGELOG.md', '# Changelog\n\n## 1.0.0\n')
         const result = await verify([pass('lint')])
         expect(result).toEqual({ ok: true, recorded: false })
-        expect(lines[0]).toContain('.github/workflows/release.yml')
+        expect(lines[0]).toContain('.nvmrc')
         expect(readVerified(repo.dir)).toBeUndefined()
     })
 
@@ -179,7 +193,7 @@ describe('what counts as a change', () => {
     })
 
     it('checks the whole tree, and says so, without a default branch', async () => {
-        repo.write('README.md', 'changed\n')
+        repo.write('CHANGELOG.md', '# Changelog\n\n## 1.0.0\n')
         const result = await verify([pass('lint')], { base: null })
         expect(result).toEqual({ ok: true, recorded: true })
         expect(lines[0]).toBe('No main branch found, so checking the whole tree.')

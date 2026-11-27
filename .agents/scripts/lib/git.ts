@@ -42,14 +42,31 @@ export function defaultBranchRef(root: string): string | undefined {
         'refs/remotes/origin/main',
         'refs/heads/main',
     ]
-    return candidates.find(
-        (ref) => ref && git(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).ok,
-    )
+    return candidates.find((ref) => ref && resolveCommit(root, ref) !== undefined)
 }
 
-/** Where the current branch left the default branch, or undefined if there is no default branch. */
-export function branchBase(root: string, ref = defaultBranchRef(root)): string | undefined {
+/** The commit `ref` names, or undefined when it names none. */
+export function resolveCommit(root: string, ref: string): string | undefined {
+    const commit = git(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
+    return commit.ok ? commit.stdout.trim() || undefined : undefined
+}
+
+/**
+ * Where the current branch, or `head`, left the default branch, or undefined if there is no default
+ * branch or they share no history.
+ */
+export function branchBase(
+    root: string,
+    ref = defaultBranchRef(root),
+    head = 'HEAD',
+): string | undefined {
     if (!ref) return undefined
-    const base = git(root, ['merge-base', 'HEAD', ref])
+    const base = git(root, ['merge-base', head, ref])
     return base.ok ? base.stdout.trim() : undefined
+}
+
+/** The top folder of the checkout `dir` is in, or undefined when it isn't in one. */
+export function findRepoRoot(dir: string): string | undefined {
+    const toplevel = git(dir, ['rev-parse', '--show-toplevel'])
+    return toplevel.ok ? toplevel.stdout.trim() : undefined
 }

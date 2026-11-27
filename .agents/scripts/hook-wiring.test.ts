@@ -1,11 +1,14 @@
-import { existsSync, readFileSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createTempRepo, REPO_ROOT, type TempRepo } from './lib/test-repo.ts'
+import { createTempRepo, markVerified, REPO_ROOT, type TempRepo } from './lib/test-repo.ts'
 
 // Runs the exact hook commands from each agent's config, the way the agent would, in a
-// throwaway repo with a copy of tools/agents.
-type HookConfig = { hooks: Record<string, { hooks: { command: string }[] }[]> }
+// throwaway repo with a copy of .agents/scripts.
+type HookConfig = {
+    hooks: Record<string, { matcher?: string; hooks: { command: string }[] }[]>
+}
 
 const AGENTS = [
     {
@@ -29,13 +32,17 @@ const AGENTS = [
     },
 ]
 
-function command(config: string, event: string): string {
-    const parsed = JSON.parse(readFileSync(join(REPO_ROOT, config), 'utf8')) as HookConfig
-    const commands = parsed.hooks[event]?.flatMap((entry) =>
-        entry.hooks.map((hook) => hook.command),
-    )
-    expect(commands, `${config} ${event}`).toHaveLength(1)
-    return commands?.[0] ?? ''
+function readConfig(config: string): HookConfig {
+    return JSON.parse(readFileSync(join(REPO_ROOT, config), 'utf8')) as HookConfig
+}
+
+/** The one command a config runs before each shell command. */
+function command(config: string): string {
+    const entries = readConfig(config).hooks.PreToolUse ?? []
+    expect(entries.map((entry) => entry.matcher)).toEqual(['Bash'])
+    const commands = entries.flatMap((entry) => entry.hooks.map((hook) => hook.command))
+    expect(commands, config).toHaveLength(1)
+    return commands[0] ?? ''
 }
 
 let repo: TempRepo
@@ -47,32 +54,86 @@ beforeEach(() => {
     repo.write('src/a.ts', 'export const a = 1\n')
     repo.git(['add', '.'])
     repo.git(['commit', '--quiet', '-m', 'initial'])
+    repo.addOrigin()
+    repo.git(['switch', '--quiet', '-c', 'feature'])
+    repo.write('src/a.ts', 'export const a = 2\n')
+    repo.git(['commit', '--quiet', '-am', 'change a'])
 })
 
 afterEach(() => repo.cleanup())
 
 describe.each(AGENTS)('$name', ({ config, env }) => {
-    const run = (event: string) =>
-        repo.run('sh', ['-c', command(config, event)], {
-            cwd: join(repo.dir, 'src'),
-            env: env(repo.dir),
-            input: JSON.stringify({ session_id: 'wiring' }),
+    const run = (
+        input: string,
+        options: { dir?: string; path?: string } = {},
+    ): { status: number | null; stdout: string; stderr: string } => {
+        const dir = options.dir ?? repo.dir
+        const result = repo.run('sh', ['-c', command(config)], {
+            cwd: join(dir, 'src'),
+            env: { ...env(dir), ...(options.path ? { PATH: options.path } : {}) },
+            input,
         })
+        return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+    }
+    const bash = (shell: string) =>
+        JSON.stringify({
+            tool_name: 'Bash',
+            tool_input: { command: shell },
+            cwd: join(repo.dir, 'src'),
+        })
+    const decision = (stdout: string) => JSON.parse(stdout).hookSpecificOutput?.permissionDecision
 
-    it('sends the agent back after an unverified code change', () => {
-        expect(run('UserPromptSubmit').status).toBe(0)
-        repo.write('src/a.ts', 'export const a = 2\n')
-        const stop = run('Stop')
-        expect(stop.status).toBe(0)
-        expect(JSON.parse(stop.stdout)).toMatchObject({ decision: 'block' })
+    it('stops an unverified push or pull request, and lets it through once verify passed', () => {
+        const pushed = run(bash('git push -u origin HEAD'))
+        expect(pushed.status).toBe(0)
+        expect(decision(pushed.stdout)).toBe('deny')
+        expect(decision(run(bash('gh pr create --fill')).stdout)).toBe('deny')
+        expect(decision(run(bash('gh pr\tcreate --fill')).stdout)).toBe('deny')
+
+        markVerified(repo.dir)
+        expect(run(bash('git push -u origin HEAD'))).toEqual({ status: 0, stdout: '', stderr: '' })
     })
 
-    it('says so, and lets work continue, in a checkout without the guard', () => {
+    it('never starts git or node for a command that cannot push', () => {
+        const bin = mkdtempSync(join(tmpdir(), 'agent-bin-'))
+        const calls = join(bin, 'calls')
+        try {
+            for (const tool of ['git', 'node']) {
+                writeFileSync(join(bin, tool), `#!/bin/sh\necho ${tool} >> "${calls}"\n`)
+                chmodSync(join(bin, tool), 0o755)
+            }
+            const path = `${bin}${delimiter}${process.env.PATH}`
+            // Even input the guard would reject passes in silence, at no cost.
+            expect(run('{not json, ls', { path })).toEqual({ status: 0, stdout: '', stderr: '' })
+            expect(run(bash('npm test && git status'), { path })).toEqual({
+                status: 0,
+                stdout: '',
+                stderr: '',
+            })
+            // Only the command counts, not a folder name elsewhere in the payload
+            const inPushFolder = JSON.stringify({
+                cwd: '/work/fix-push',
+                transcript_path: '/home/me/.claude/projects/-work-fix-push/session.jsonl',
+                tool_name: 'Bash',
+                tool_input: { command: 'ls' },
+            })
+            expect(run(inPushFolder, { path })).toEqual({ status: 0, stdout: '', stderr: '' })
+            expect(existsSync(calls)).toBe(false)
+        } finally {
+            rmSync(bin, { recursive: true, force: true })
+        }
+    })
+
+    it('skips a checkout without the guard, such as an older branch, without a word', () => {
         rmSync(join(repo.dir, '.agents'), { recursive: true })
-        const stop = run('Stop')
-        expect(stop.status).toBe(0)
-        expect(JSON.parse(stop.stdout).systemMessage).toContain('has no .agents/scripts/guard.ts')
+        expect(run(bash('git push'))).toEqual({ status: 0, stdout: '', stderr: '' })
     })
+})
+
+it('runs the guard only before shell commands, and at no other point', () => {
+    for (const config of ['.claude/settings.json', '.codex/hooks.json']) {
+        expect(Object.keys(readConfig(config).hooks), config).toEqual(['PreToolUse'])
+    }
 })
 
 it('has no Cursor hooks file: Cursor runs the Claude Code hooks, and a second file runs them twice', () => {

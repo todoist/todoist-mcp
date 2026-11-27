@@ -1,22 +1,13 @@
 {
+    "description": "Push check: stops an agent's `git push` or `gh pr create` when what it sends hasn't passed `npm run verify`. See docs/agents.md.",
     "hooks": {
-        "UserPromptSubmit": [
+        "PreToolUse": [
             {
+                "matcher": "Bash",
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "unset $(git rev-parse --local-env-vars 2>/dev/null); root=$(git rev-parse --show-toplevel 2>/dev/null) || root=.; f=\"$root/.agents/scripts/guard.ts\"; if [ -f \"$f\" ]; then node \"$f\" turn-start; else echo '{\"systemMessage\":\"agent-guard: this checkout has no .agents/scripts/guard.ts, so turn-start was skipped\"}'; fi",
-                        "timeout": 30
-                    }
-                ]
-            }
-        ],
-        "Stop": [
-            {
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": "unset $(git rev-parse --local-env-vars 2>/dev/null); root=$(git rev-parse --show-toplevel 2>/dev/null) || root=.; f=\"$root/.agents/scripts/guard.ts\"; if [ -f \"$f\" ]; then node \"$f\" turn-end; else echo '{\"systemMessage\":\"agent-guard: this checkout has no .agents/scripts/guard.ts, so turn-end was skipped\"}'; fi",
+                        "command": "p=$(cat); case $p in *'\"command\"'*push* | *'\"command\"'*pr[[:space:]\\\\]*create* | *'\"command\"'*pr[[:space:]\\\\]*new*) ;; *) exit 0 ;; esac; unset $(git rev-parse --local-env-vars 2>/dev/null); root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0; f=\"$root/.agents/scripts/guard.ts\"; [ -f \"$f\" ] || exit 0; printf '%s' \"$p\" | node \"$f\" tool-start",
                         "timeout": 30
                     }
                 ]
