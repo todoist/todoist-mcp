@@ -16,7 +16,7 @@ import { ONE_HOUR_MS } from './utils/constants.js'
 export const instructions = `
 ## Todoist
 
-Tools for Todoist tasks, projects, sections, folders, comments and attachments, labels, filters, reminders, templates, workspaces, collaborators, user status, activity, overviews and productivity stats. Which tool to reach for:
+Manage Todoist: create, update, complete and search tasks (priorities, dates, durations, assignees, labels); organise projects, sections and folders, personal or in workspaces; comments and attachments, filters, reminders, templates, collaborators, user status, activity, overviews and productivity stats.
 
 **Dates**
 
