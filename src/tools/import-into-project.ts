@@ -1,7 +1,11 @@
 import type { ImportTemplateResponse, TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
-import { ErrorWithContext } from '../tool-execution-error.js'
+import {
+    ErrorWithContext,
+    formatBatchItemError,
+    ProjectAccessError,
+} from '../tool-execution-error.js'
 import { getProjectOrExplain, mapComment, mapTask } from '../tool-helpers.js'
 import {
     CommentSchema,
@@ -94,23 +98,52 @@ function generateTextContent({
     return `Imported ${source} into project (id=${projectId}): ${parts.join(', ')}.`
 }
 
-/** The question put to the user before an import, naming the template and the project. */
+/** Handles a failed lookup for the question's wording: logs it and leaves the name out. */
+function logFailedLookup(what: 'project' | 'template', id: string): (error: unknown) => undefined {
+    return (error) => {
+        console.error(
+            `${ToolNames.IMPORT_INTO_PROJECT}: could not look up the ${what} to name it`,
+            {
+                id,
+                error: formatBatchItemError(error),
+            },
+        )
+        return undefined
+    }
+}
+
+/**
+ * The question put to the user before an import, naming the template and the project. The names
+ * only make the question clearer, so a lookup that fails is logged and the question names the
+ * item by its ID instead. A project the user cannot reach still fails here, before asking: the
+ * import would fail on it anyway, and `getProjectOrExplain` says why.
+ */
 async function describeImport(
     client: TodoistApi,
     { projectId, templateId, locale }: { projectId: string; templateId?: string; locale?: string },
 ): Promise<string> {
-    const [project, templateName] = await Promise.all([
-        getProjectOrExplain(client, projectId),
-        // The name only makes the question clearer: if it cannot be read, the ID still says which.
+    const [projectName, templateName] = await Promise.all([
+        getProjectOrExplain(client, projectId).then(
+            (project) => project.name,
+            (error: unknown) => {
+                if (error instanceof ProjectAccessError) throw error
+                return logFailedLookup('project', projectId)(error)
+            },
+        ),
         templateId
             ? client
                   .getTemplate(extractTemplateId(templateId), locale ? { locale } : undefined)
-                  .then((template) => template.name)
-                  .catch(() => extractTemplateId(templateId))
+                  .then(
+                      (template) => template.name,
+                      logFailedLookup('template', extractTemplateId(templateId)),
+                  )
             : undefined,
     ])
-    const source = templateName ? `the template "${templateName}"` : 'the CSV'
-    return `Import ${source} into the project "${project.name}"? Its sections, tasks and comments are added to what's already there. This can't be undone.`
+    const source = templateId
+        ? `the template "${templateName ?? extractTemplateId(templateId)}"`
+        : 'the CSV'
+    const project = projectName ? `the project "${projectName}"` : `the project (id=${projectId})`
+    return `Import ${source} into ${project}? Its sections, tasks and comments are added to what's already there. This can't be undone.`
 }
 
 const importIntoProject = {

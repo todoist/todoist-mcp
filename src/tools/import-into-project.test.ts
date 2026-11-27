@@ -1,5 +1,5 @@
 import type { TodoistApi } from '@todoist/sdk'
-import { type Mocked, vi } from 'vitest'
+import { afterEach, type Mocked, vi } from 'vitest'
 import { z } from 'zod'
 import { formatToolExecutionError } from '../tool-execution-error.js'
 import { executeWithRetry } from '../utils/retry.js'
@@ -11,6 +11,7 @@ import {
     createMockTemplate,
     createMockToolRequest,
     getAdvertisedPattern,
+    mockUnjoinedWorkspaceProject,
     TEST_IDS,
 } from '../utils/test-helpers.js'
 import { ToolNames } from '../utils/tool-names.js'
@@ -19,6 +20,8 @@ import { importIntoProject } from './import-into-project.js'
 const mockTodoistApi = {
     getProject: vi.fn(),
     getTemplate: vi.fn(),
+    getWorkspaces: vi.fn(),
+    getWorkspaceActiveProjects: vi.fn(),
     importTemplateFromId: vi.fn(),
     importCsvIntoProject: vi.fn(),
 } as unknown as Mocked<TodoistApi>
@@ -366,19 +369,98 @@ describe(`${IMPORT_INTO_PROJECT} tool`, () => {
             expect(mockTodoistApi.importTemplateFromId).not.toHaveBeenCalled()
         })
 
-        it('should name the template by its ID when its details cannot be read', async () => {
-            mockTodoistApi.getTemplate.mockRejectedValue(new Error('not found'))
+        // The names only make the question clearer: a lookup that fails for any reason but a
+        // missing project must not stop an import the user may well confirm.
+        describe('when a name cannot be read', () => {
+            let consoleError: ReturnType<typeof vi.spyOn>
+            beforeEach(() => {
+                consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+            })
+            afterEach(() => {
+                consoleError.mockRestore()
+            })
+
+            it('should name the template by its ID when its details cannot be read', async () => {
+                mockTodoistApi.getTemplate.mockRejectedValue(new Error('not found'))
+                const request = createMockToolRequest('asking')
+
+                await importIntoProject.execute(
+                    { projectId: TEST_IDS.PROJECT_TEST, templateId: 'product-launch' },
+                    mockTodoistApi,
+                    request,
+                )
+
+                expect(request.questions[0]?.message).toBe(
+                    'Import the template "product-launch" into the project "Q3 Plan"? Its sections, tasks and comments are added to what\'s already there. This can\'t be undone.',
+                )
+                expect(consoleError).toHaveBeenCalledWith(
+                    'import-into-project: could not look up the template to name it',
+                    { id: 'product-launch', error: expect.stringContaining('not found') },
+                )
+            })
+
+            it('should name the project by its ID when it cannot be read, then import once the user confirms', async () => {
+                mockTodoistApi.getProject.mockRejectedValue(
+                    createApiError({ status: 502, error: 'Bad Gateway' }),
+                )
+                mockTodoistApi.getTemplate.mockResolvedValue(
+                    createMockTemplate({ name: 'Launch plan' }),
+                )
+                const request = createMockToolRequest('asking')
+
+                await importIntoProject.execute(
+                    { projectId: TEST_IDS.PROJECT_TEST, templateId: 'UT_28Ex1' },
+                    mockTodoistApi,
+                    request,
+                )
+
+                expect(request.questions).toEqual([
+                    {
+                        key: 'import',
+                        message: `Import the template "Launch plan" into the project (id=${TEST_IDS.PROJECT_TEST})? Its sections, tasks and comments are added to what's already there. This can't be undone.`,
+                    },
+                ])
+                expect(consoleError).toHaveBeenCalledWith(
+                    'import-into-project: could not look up the project to name it',
+                    { id: TEST_IDS.PROJECT_TEST, error: expect.stringContaining('HTTP 502') },
+                )
+                expect(mockTodoistApi.importTemplateFromId).not.toHaveBeenCalled()
+
+                mockTodoistApi.importTemplateFromId.mockResolvedValue(createImportResponse())
+                const result = await importIntoProject.execute(
+                    { projectId: TEST_IDS.PROJECT_TEST, templateId: 'UT_28Ex1' },
+                    mockTodoistApi,
+                    createMockToolRequest('confirmed'),
+                )
+
+                expect(mockTodoistApi.importTemplateFromId).toHaveBeenCalledWith({
+                    projectId: TEST_IDS.PROJECT_TEST,
+                    templateId: 'UT_28Ex1',
+                    locale: undefined,
+                })
+                expect(result.structuredContent?.totalCount).toBe(0)
+            })
+        })
+
+        // The import would fail on it anyway, and the lookup explains why, so there is
+        // nothing to ask the user about.
+        it('should not ask about a project that was not found', async () => {
+            const expected = mockUnjoinedWorkspaceProject(mockTodoistApi)
+            mockTodoistApi.getTemplate.mockResolvedValue(
+                createMockTemplate({ name: 'Launch plan' }),
+            )
             const request = createMockToolRequest('asking')
 
-            await importIntoProject.execute(
-                { projectId: TEST_IDS.PROJECT_TEST, templateId: 'product-launch' },
-                mockTodoistApi,
-                request,
-            )
+            const error = await importIntoProject
+                .execute(
+                    { projectId: 'unjoined-project-id', templateId: 'UT_28Ex1' },
+                    mockTodoistApi,
+                    request,
+                )
+                .catch((caught: unknown) => caught)
 
-            expect(request.questions[0]?.message).toBe(
-                'Import the template "product-launch" into the project "Q3 Plan"? Its sections, tasks and comments are added to what\'s already there. This can\'t be undone.',
-            )
+            expect(formatToolExecutionError(error)).toBe(expected)
+            expect(request.questions).toEqual([])
         })
 
         it('should ask before importing CSV content', async () => {

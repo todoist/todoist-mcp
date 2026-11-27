@@ -1,6 +1,7 @@
 import { isWorkspaceProject, type TodoistApi } from '@todoist/sdk'
 import { z } from 'zod'
 import type { TodoistTool } from '../todoist-tool.js'
+import { formatBatchItemError } from '../tool-execution-error.js'
 import { getProjectOrExplain } from '../tool-helpers.js'
 import { filterResolver } from '../utils/filter-resolver.js'
 import { ToolNames } from '../utils/tool-names.js'
@@ -42,42 +43,67 @@ function quote(text: string): string {
     return text.length > QUOTE_LIMIT ? `${text.slice(0, QUOTE_LIMIT - 1)}…` : text
 }
 
-/** The question put to the user before a delete, naming what would go. Looked up only to ask. */
+/**
+ * What the question calls the item, from a lookup made only to ask. Undefined when the lookup
+ * finds nothing to name it by.
+ */
+async function nameDeletion(
+    client: TodoistApi,
+    type: Exclude<EntityType, 'project'>,
+    id: string,
+): Promise<string | undefined> {
+    switch (type) {
+        case 'section':
+            return `the section "${(await client.getSection(id)).name}"`
+        case 'task':
+            return `the task "${quote((await client.getTask(id)).content)}"`
+        case 'comment':
+            return `the comment "${quote((await client.getComment(id)).content)}"`
+        case 'label':
+            return `the label "${(await client.getLabel(id)).name}"`
+        case 'filter':
+            // The resolver also matches by name, so only an exact ID match names the filter.
+            return filterResolver.resolveFilter(client, id).then(
+                (filter) =>
+                    filter.filterId === id ? `the filter "${filter.filterName}"` : undefined,
+                () => undefined,
+            )
+        case 'folder':
+            return `the folder "${(await client.getFolder(id)).name}"`
+        case 'reminder': {
+            const task = await client.getTask((await client.getReminder(id)).itemId)
+            return `the reminder on the task "${quote(task.content)}"`
+        }
+        case 'location_reminder': {
+            const task = await client.getTask((await client.getLocationReminder(id)).itemId)
+            return `the location reminder on the task "${quote(task.content)}"`
+        }
+    }
+}
+
+/**
+ * The question put to the user before a delete, naming what would go. The name only makes the
+ * question clearer, so a lookup that fails is logged and the question names the item by its ID
+ * instead of stopping a delete the user may well confirm.
+ */
 async function describeDeletion(
     client: TodoistApi,
     type: Exclude<EntityType, 'project'>,
     id: string,
 ): Promise<string> {
-    switch (type) {
-        case 'section':
-            return `Delete the section "${(await client.getSection(id)).name}"? ${CANNOT_UNDO}`
-        case 'task':
-            return `Delete the task "${quote((await client.getTask(id)).content)}"? ${CANNOT_UNDO}`
-        case 'comment':
-            return `Delete the comment "${quote((await client.getComment(id)).content)}"? ${CANNOT_UNDO}`
-        case 'label':
-            return `Delete the label "${(await client.getLabel(id)).name}"? ${CANNOT_UNDO}`
-        case 'filter': {
-            // The resolver also matches by name, so only an exact ID match names the filter.
-            const name = await filterResolver.resolveFilter(client, id).then(
-                (filter) => (filter.filterId === id ? filter.filterName : undefined),
-                () => undefined,
-            )
-            return name
-                ? `Delete the filter "${name}"? ${CANNOT_UNDO}`
-                : `Delete the filter (id=${id})? ${CANNOT_UNDO}`
-        }
-        case 'folder':
-            return `Delete the folder "${(await client.getFolder(id)).name}"? Its projects are kept and moved to the top level of the workspace.`
-        case 'reminder': {
-            const task = await client.getTask((await client.getReminder(id)).itemId)
-            return `Delete the reminder on the task "${quote(task.content)}"? ${CANNOT_UNDO}`
-        }
-        case 'location_reminder': {
-            const task = await client.getTask((await client.getLocationReminder(id)).itemId)
-            return `Delete the location reminder on the task "${quote(task.content)}"? ${CANNOT_UNDO}`
-        }
-    }
+    const named = await nameDeletion(client, type, id).catch((error: unknown) => {
+        console.error(`${ToolNames.DELETE_OBJECT}: could not look up the ${type} to name it`, {
+            id,
+            error: formatBatchItemError(error),
+        })
+        return undefined
+    })
+    const subject = named ?? `the ${type.replace('_', ' ')} (id=${id})`
+    const outcome =
+        type === 'folder'
+            ? 'Its projects are kept and moved to the top level of the workspace.'
+            : CANNOT_UNDO
+    return `Delete ${subject}? ${outcome}`
 }
 
 async function deleteEntity(client: TodoistApi, type: EntityType, id: string): Promise<void> {

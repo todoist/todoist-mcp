@@ -1,5 +1,5 @@
 import type { TodoistApi } from '@todoist/sdk'
-import { beforeEach, describe, expect, it, type Mocked, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, type Mocked, vi } from 'vitest'
 import { formatToolExecutionError } from '../tool-execution-error.js'
 import {
     createMockFilter,
@@ -583,6 +583,102 @@ describe(`${DELETE_OBJECT} tool`, () => {
                     message: "Delete the filter (id=gone-filter)? This can't be undone.",
                 },
             ])
+        })
+
+        // The name only makes the question clearer: a lookup that fails must not stop a delete.
+        describe('when the lookup behind the name fails', () => {
+            let consoleError: ReturnType<typeof vi.spyOn>
+            beforeEach(() => {
+                consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+            })
+            afterEach(() => {
+                consoleError.mockRestore()
+            })
+
+            it.each([
+                {
+                    type: 'section' as const,
+                    setUp: () =>
+                        mockTodoistApi.getSection.mockRejectedValue(new Error('Bad Gateway')),
+                    deleteCall: () => mockTodoistApi.deleteSection,
+                    message: "Delete the section (id=x1)? This can't be undone.",
+                },
+                {
+                    type: 'task' as const,
+                    setUp: () => mockTodoistApi.getTask.mockRejectedValue(new Error('Bad Gateway')),
+                    deleteCall: () => mockTodoistApi.deleteTask,
+                    message: "Delete the task (id=x1)? This can't be undone.",
+                },
+                {
+                    type: 'comment' as const,
+                    setUp: () =>
+                        mockTodoistApi.getComment.mockRejectedValue(new Error('Bad Gateway')),
+                    deleteCall: () => mockTodoistApi.deleteComment,
+                    message: "Delete the comment (id=x1)? This can't be undone.",
+                },
+                {
+                    type: 'label' as const,
+                    setUp: () =>
+                        mockTodoistApi.getLabel.mockRejectedValue(new Error('Bad Gateway')),
+                    deleteCall: () => mockTodoistApi.deleteLabel,
+                    message: "Delete the label (id=x1)? This can't be undone.",
+                },
+                {
+                    type: 'folder' as const,
+                    setUp: () =>
+                        mockTodoistApi.getFolder.mockRejectedValue(new Error('Bad Gateway')),
+                    deleteCall: () => mockTodoistApi.deleteFolder,
+                    message:
+                        'Delete the folder (id=x1)? Its projects are kept and moved to the top level of the workspace.',
+                },
+                {
+                    type: 'reminder' as const,
+                    setUp: () =>
+                        mockTodoistApi.getReminder.mockRejectedValue(new Error('Bad Gateway')),
+                    deleteCall: () => mockTodoistApi.deleteReminder,
+                    message: "Delete the reminder (id=x1)? This can't be undone.",
+                },
+                {
+                    // The reminder itself is found, but the task it is on cannot be read.
+                    type: 'location_reminder' as const,
+                    setUp: () => {
+                        mockTodoistApi.getLocationReminder.mockResolvedValue({
+                            itemId: 't1',
+                        } as never)
+                        mockTodoistApi.getTask.mockRejectedValue(new Error('Bad Gateway'))
+                    },
+                    deleteCall: () => mockTodoistApi.deleteLocationReminder,
+                    message: "Delete the location reminder (id=x1)? This can't be undone.",
+                },
+            ])(
+                'should name the $type by its ID, then delete it once the user confirms',
+                async ({ type, setUp, deleteCall, message }) => {
+                    setUp()
+                    const request = createMockToolRequest('asking')
+
+                    await deleteObject.execute({ type, id: 'x1' }, mockTodoistApi, request)
+
+                    expect(request.questions).toEqual([{ key: 'delete', message }])
+                    expect(consoleError).toHaveBeenCalledWith(
+                        `delete-object: could not look up the ${type} to name it`,
+                        { id: 'x1', error: expect.stringContaining('Bad Gateway') },
+                    )
+                    expect(deleteCall()).not.toHaveBeenCalled()
+
+                    deleteCall().mockResolvedValue(true)
+                    const result = await deleteObject.execute(
+                        { type, id: 'x1' },
+                        mockTodoistApi,
+                        createMockToolRequest('confirmed'),
+                    )
+
+                    expect(deleteCall()).toHaveBeenCalledWith('x1')
+                    expect(result.structuredContent).toEqual({
+                        deletedEntity: { type, id: 'x1' },
+                        success: true,
+                    })
+                },
+            )
         })
 
         it('should shorten a long comment in the question', async () => {
