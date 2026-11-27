@@ -93,7 +93,7 @@ const CATALOGUE_CACHE_HINT = { ttlMs: ONE_HOUR_MS, cacheScope: 'private' } as co
  * it to the model, so anything the model needs to pick a tool belongs in `instructions`.
  */
 const description =
-    'The official Todoist MCP server. Add, update, schedule, complete and search tasks, with priorities, due dates, deadlines, durations, labels and assignees. Organise projects, sections, folders and workspaces. Manage comments and attachments, saved filters, reminders and templates. Find collaborators, check or set your status, and review activity, project health and productivity stats.'
+    'The official Todoist MCP server. Add, update, schedule, complete and search tasks, with priorities, due dates, deadlines, durations, labels and assignees. Organise projects, sections and folders, personal or in a workspace. Add, edit and read comments and view their attachments, and manage labels, saved filters, reminders and templates. Find collaborators, check or set your status, and review activity, project health and productivity stats.'
 
 /**
  * Create the MCP server.
