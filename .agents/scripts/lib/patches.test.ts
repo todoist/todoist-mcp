@@ -8,6 +8,7 @@ import {
     readPassedPatches,
     recordPassedPatch,
 } from './patches.ts'
+import { stateDir } from './state.ts'
 import { createTempRepo, GIT_HAS_VERBATIM_PATCH_ID, type TempRepo } from './test-repo.ts'
 
 let repo: TempRepo
@@ -148,7 +149,7 @@ describe.skipIf(!GIT_HAS_VERBATIM_PATCH_ID)('passed patches', () => {
     it.skipIf(process.getuid?.() === 0)(
         "deletes the record when it can't rewrite it, and throws when it can't delete it",
         () => {
-            const record = join(repo.dir, '.tmp/agents/verified-patches.json')
+            const record = join(stateDir(repo.dir), 'verified-patches.json')
             recordPassedPatch(repo.dir, base(), 'HEAD')
             chmodSync(record, 0o444)
             forgetPassedChanges(repo.dir, base())
@@ -156,11 +157,11 @@ describe.skipIf(!GIT_HAS_VERBATIM_PATCH_ID)('passed patches', () => {
 
             recordPassedPatch(repo.dir, base(), 'HEAD')
             chmodSync(record, 0o444)
-            chmodSync(join(repo.dir, '.tmp/agents'), 0o555)
+            chmodSync(stateDir(repo.dir), 0o555)
             try {
                 expect(() => forgetPassedChanges(repo.dir, base())).toThrow(/EACCES/)
             } finally {
-                chmodSync(join(repo.dir, '.tmp/agents'), 0o755)
+                chmodSync(stateDir(repo.dir), 0o755)
             }
         },
     )

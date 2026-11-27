@@ -464,7 +464,7 @@ describe.skipIf(!GIT_HAS_VERBATIM_PATCH_ID)('pushes of changes that already pass
     it('stops a rebased branch whose changes are not the ones that passed', () => {
         commitOnBranch('feature', 'src/b.ts')
         markVerified()
-        check('git push -u origin feature')
+        expect(check('git push -u origin feature')).toEqual({ decision: 'allow', notes: [] })
         moveMain()
         repo.git(['rebase', '--quiet', 'origin/main'])
         repo.write('src/b.ts', 'export const x = 2\n')

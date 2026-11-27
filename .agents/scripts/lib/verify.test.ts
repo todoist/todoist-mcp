@@ -113,8 +113,11 @@ describe('a code change', () => {
             for (const mode of ['--soft', '--mixed']) {
                 await commitAndPass()
                 repo.git(['reset', '--quiet', mode, 'HEAD~1'])
+                // It stages them in a copy of the index, so the real one is left as it was.
+                const status = repo.git(['status', '--porcelain']).stdout
                 await verify([fail('tests')])
                 expect(readPassedPatches(repo.dir), mode).toEqual([])
+                expect(repo.git(['status', '--porcelain']).stdout, mode).toBe(status)
             }
             repo.git(['add', '.'])
             repo.git(['commit', '--quiet', '-m', 'change a, add new'])

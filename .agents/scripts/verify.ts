@@ -13,11 +13,11 @@ const base = ref ? branchBase(root, ref) : undefined
 
 const problems = preflight(root)
 if (problems.length > 0) {
+    for (const problem of problems) console.log(`✗ ${problem}`)
     // A run that stops here is a run that didn't pass: forget the tree and the branch's changes, as
-    // a failing check would.
+    // a failing check would. After the problems, which still say what to fix when forgetting fails.
     clearVerified(root)
     if (base !== undefined) forgetPassedChanges(root, base)
-    for (const problem of problems) console.log(`✗ ${problem}`)
     process.exit(1)
 }
 
